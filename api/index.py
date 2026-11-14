@@ -1,0 +1,239 @@
+import asyncio
+import json
+import os
+import sys
+import time
+from collections import OrderedDict
+from datetime import datetime, timezone
+from pathlib import Path
+
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, ConfigDict, Field
+from starlette.concurrency import run_in_threadpool
+
+from ml.dataset import analyze_csv
+from ml.features import DEFINITIONS, extract_features
+from ml.model import TRAIN_LOCK, load_production, predict
+from ml.scanner import scan_online
+
+app = FastAPI(title="UMMU URL GUARD", version="1.0.0")
+origins = [
+    origin.strip()
+    for origin in os.getenv("ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+if origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type"],
+    )
+
+
+class Limits:
+    """Bound body before multipart parsing; local rate limits are per instance.
+
+    Configure Vercel Firewall limits as well for distributed abuse protection.
+    Do not trust caller-supplied forwarding headers for client identification.
+    """
+
+    def __init__(self, application):
+        self.app = application
+        self.requests = OrderedDict()
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        now = time.monotonic()
+        client = scope.get("client") or ("unknown", 0)
+        key = client[0]
+        bucket = [(t, p) for t, p in self.requests.pop(key, []) if now - t < 60]
+        path = scope["path"]
+        costly = path in ("/api/train", "/api/experiment", "/api/evaluate")
+        if len(bucket) >= 30 or (costly and sum(p for _, p in bucket) >= 3):
+            return await self.error(
+                send, 429, "Rate limit reached; retry in one minute"
+            )
+        self.requests[key] = bucket + [(now, int(costly))]
+        if len(self.requests) > 4096:
+            self.requests.popitem(last=False)
+        chunks, size = [], 0
+        if scope["method"] == "POST":
+            try:
+                async with asyncio.timeout(10):
+                    while True:
+                        message = await receive()
+                        if message["type"] == "http.disconnect":
+                            return
+                        data = message.get("body", b"")
+                        size += len(data)
+                        if size > 2_100_000:
+                            return await self.error(
+                                send, 413, "Request exceeds 2 MB dataset limit"
+                            )
+                        chunks.append(data)
+                        if not message.get("more_body"):
+                            break
+            except TimeoutError:
+                return await self.error(send, 408, "Request upload timed out")
+            body = b"".join(chunks)
+            delivered = False
+            original_receive = receive
+
+            async def replay():
+                nonlocal delivered
+                if not delivered:
+                    delivered = True
+                    return {"type": "http.request", "body": body, "more_body": False}
+                return await original_receive()
+
+            receive = replay
+        await self.app(scope, receive, send)
+
+    async def error(self, send, status, detail):
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"retry-after", b"60"),
+                ],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": json.dumps({"detail": detail}).encode(),
+            }
+        )
+
+
+app.add_middleware(Limits)
+
+
+class URLRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    url: str = Field(min_length=1, max_length=4096)
+
+
+def extraction(value):
+    try:
+        return extract_features(value)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+
+
+@app.get("/api/health")
+def health():
+    bundle, metadata = load_production()
+    return {
+        "status": "ok",
+        "model_available": bundle is not None,
+        "model_version": bundle["model_version"] if bundle else None,
+        "report": metadata["report"] if metadata else None,
+    }
+
+
+@app.post("/api/features")
+def features(body: URLRequest):
+    return {**extraction(body.url), "definitions": DEFINITIONS}
+
+
+@app.post("/api/predict")
+def prediction(body: URLRequest):
+    extracted = extraction(body.url)
+    bundle, _ = load_production()
+    return {**extracted, **predict(extracted, bundle)}
+
+
+@app.post("/api/scan")
+async def scan(body: URLRequest):
+    extracted = extraction(body.url)
+    online = await scan_online(extracted["url"])
+    bundle, _ = await run_in_threadpool(load_production)
+    final = extraction(online["final_url"]) if online["final_url"] else None
+    return {
+        **extracted,
+        **predict(extracted, bundle),
+        "online": online,
+        "final_destination": final,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "prediction_target": "original normalized URL; online metadata is not a model input",
+    }
+
+
+@app.post("/api/dataset/analyze")
+async def dataset(file: UploadFile = File(...)):
+    try:
+        _, summary, _ = await run_in_threadpool(
+            analyze_csv, await file.read(), file.filename
+        )
+        return summary
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    finally:
+        await file.close()
+
+
+@app.post("/api/train")
+@app.post("/api/experiment")
+@app.post("/api/evaluate")
+async def train(file: UploadFile = File(...), seed: int = 42, n_estimators: int = 100):
+    # Evaluation is deliberately stateless: rerun the specified reproducible
+    # experiment, never accept user-provided metric values as evaluation evidence.
+    if not 0 <= seed <= 2147483617 or not 20 <= n_estimators <= 150:
+        raise HTTPException(
+            422, "seed must be 0–2147483617; n_estimators must be 20–150"
+        )
+    if not TRAIN_LOCK.acquire(blocking=False):
+        raise HTTPException(429, "An experiment is running on this instance; try later")
+    try:
+        raw = await file.read()
+        worker_env = {
+            **os.environ,
+            "OMP_NUM_THREADS": "1",
+            "OPENBLAS_NUM_THREADS": "1",
+            "MKL_NUM_THREADS": "1",
+        }
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-m",
+            "ml.worker",
+            (file.filename or "dataset.csv")[:120],
+            str(seed),
+            str(n_estimators),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+            cwd=str(Path(__file__).resolve().parents[1]),
+            env=worker_env,
+        )
+        try:
+            output, _ = await asyncio.wait_for(process.communicate(raw), timeout=40)
+        except (TimeoutError, asyncio.CancelledError) as exc:
+            process.kill()
+            await process.wait()
+            if isinstance(exc, asyncio.CancelledError):
+                raise
+            raise HTTPException(
+                408,
+                "Training exceeded 40 seconds. Use python -m ml.train_local locally.",
+            ) from None
+        try:
+            result = json.loads(output)
+        except ValueError:
+            raise HTTPException(
+                500,
+                "Experiment worker failed; use local training to inspect the dataset",
+            ) from None
+        if process.returncode != 0 or "error" in result:
+            raise HTTPException(
+                422, result.get("error", "Training failed; use local training")
+            )
+        return result["report"]
+    finally:
+        TRAIN_LOCK.release()
+        await file.close()
