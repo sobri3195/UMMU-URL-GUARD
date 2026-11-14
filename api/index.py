@@ -6,8 +6,10 @@ import time
 from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
+from urllib.parse import urlsplit
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import APIRouter, FastAPI, File, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
@@ -17,19 +19,49 @@ from ml.features import DEFINITIONS, extract_features
 from ml.model import TRAIN_LOCK, load_production, predict
 from ml.scanner import scan_online
 
-app = FastAPI(title="UMMU URL GUARD", version="1.0.0")
-origins = [
-    origin.strip()
-    for origin in os.getenv("ALLOWED_ORIGINS", "").split(",")
-    if origin.strip()
-]
-if origins:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_methods=["GET", "POST"],
-        allow_headers=["Content-Type"],
-    )
+APP_VERSION = "1.0.1"
+router = APIRouter()
+
+
+class HealthResponse(BaseModel):
+    status: Literal["ok"]
+    backend: Literal["fastapi"]
+    app_version: str
+    model_status: Literal["available", "unavailable"]
+    model_available: bool
+    model_version: str | None
+    report: dict | None = None
+
+
+def allowed_origins():
+    origins = []
+    for value in os.getenv("ALLOWED_ORIGINS", "").split(","):
+        origin = value.strip().rstrip("/")
+        if not origin:
+            continue
+        try:
+            parsed = urlsplit(origin)
+            valid = (
+                parsed.scheme in ("http", "https")
+                and parsed.hostname
+                and parsed.netloc
+                and parsed.path == ""
+                and not parsed.query
+                and not parsed.fragment
+                and parsed.username is None
+                and parsed.password is None
+                and "*" not in origin
+                and not any(c.isspace() for c in origin)
+                and (parsed.port is None or 1 <= parsed.port <= 65535)
+            )
+        except ValueError:
+            valid = False
+        if not valid:
+            raise ValueError(
+                "ALLOWED_ORIGINS must contain explicit HTTP(S) origins without paths or credentials"
+            )
+        origins.append(origin)
+    return origins
 
 
 class Limits:
@@ -111,9 +143,6 @@ class Limits:
         )
 
 
-app.add_middleware(Limits)
-
-
 class URLRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     url: str = Field(min_length=1, max_length=4096)
@@ -126,30 +155,34 @@ def extraction(value):
         raise HTTPException(422, str(exc)) from None
 
 
-@app.get("/api/health")
-def health():
+@router.get("/api/health", response_model=HealthResponse)
+def health(response: Response):
+    response.headers["Cache-Control"] = "no-store"
     bundle, metadata = load_production()
     return {
         "status": "ok",
+        "backend": "fastapi",
+        "app_version": APP_VERSION,
+        "model_status": "available" if bundle is not None else "unavailable",
         "model_available": bundle is not None,
         "model_version": bundle["model_version"] if bundle else None,
         "report": metadata["report"] if metadata else None,
     }
 
 
-@app.post("/api/features")
+@router.post("/api/features")
 def features(body: URLRequest):
     return {**extraction(body.url), "definitions": DEFINITIONS}
 
 
-@app.post("/api/predict")
+@router.post("/api/predict")
 def prediction(body: URLRequest):
     extracted = extraction(body.url)
     bundle, _ = load_production()
     return {**extracted, **predict(extracted, bundle)}
 
 
-@app.post("/api/scan")
+@router.post("/api/scan")
 async def scan(body: URLRequest):
     extracted = extraction(body.url)
     online = await scan_online(extracted["url"])
@@ -165,7 +198,7 @@ async def scan(body: URLRequest):
     }
 
 
-@app.post("/api/dataset/analyze")
+@router.post("/api/dataset/analyze")
 async def dataset(file: UploadFile = File(...)):
     try:
         _, summary, _ = await run_in_threadpool(
@@ -178,9 +211,9 @@ async def dataset(file: UploadFile = File(...)):
         await file.close()
 
 
-@app.post("/api/train")
-@app.post("/api/experiment")
-@app.post("/api/evaluate")
+@router.post("/api/train")
+@router.post("/api/experiment")
+@router.post("/api/evaluate")
 async def train(file: UploadFile = File(...), seed: int = 42, n_estimators: int = 100):
     # Evaluation is deliberately stateless: rerun the specified reproducible
     # experiment, never accept user-provided metric values as evaluation evidence.
@@ -237,3 +270,23 @@ async def train(file: UploadFile = File(...), seed: int = 42, n_estimators: int 
     finally:
         TRAIN_LOCK.release()
         await file.close()
+
+
+def create_app():
+    application = FastAPI(title="UMMU URL GUARD", version=APP_VERSION)
+    application.include_router(router)
+    application.add_middleware(Limits)
+    # CORS is outermost so upload/rate-limit errors also reach allowed clients.
+    origins = allowed_origins()
+    if origins:
+        application.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_methods=["GET", "POST"],
+            allow_headers=["Content-Type"],
+            allow_credentials=False,
+        )
+    return application
+
+
+app = create_app()

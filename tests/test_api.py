@@ -1,10 +1,9 @@
 from fastapi.testclient import TestClient
-from api.index import app
+from api.index import create_app
 
 
 def client():
-    app.middleware_stack = None
-    return TestClient(app)
+    return TestClient(create_app())
 
 
 def test_endpoints():

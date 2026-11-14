@@ -13,7 +13,8 @@ import {
   History,
   Menu,
 } from "lucide";
-import { request } from "./utils/api.js";
+import { getHealth } from "./utils/api.js";
+import { showConnection } from "./utils/connection.js";
 import { KEYS, read } from "./utils/storage.js";
 import { clearCharts } from "./utils/charts.js";
 import * as dashboard from "./pages/dashboard.js";
@@ -91,7 +92,7 @@ document.getElementById("app").innerHTML =
     )
     .join(
       "",
-    )}</nav><div class="sidebar-note"><span class="status-dot"></span>Research, responsibly.<p>Predictions are indicators.<br>Always verify independently.</p></div></aside><div class="workspace"><header><button id="mobile-menu" aria-label="Toggle navigation" aria-expanded="false"><i data-lucide="menu"></i></button><div class="header-title">Phishing URL Detection <span>& Typosquatting Analysis</span></div><span class="version">RESEARCH EDITION</span></header><main><div class="page-heading"><div><div class="eyebrow">UMMU URL GUARD</div><h1 id="title"></h1><p id="subtitle"></p></div><span id="model-status" class="model-status">Checking API…</span></div><div id="view"></div><footer>UMMU URL GUARD · Research workspace <span>Machine learning prediction is an indicator, not a guarantee of website safety.</span></footer></main></div>`;
+    )}</nav><div class="sidebar-note"><span class="status-dot"></span>Research, responsibly.<p>Predictions are indicators.<br>Always verify independently.</p></div></aside><div class="workspace"><header><button id="mobile-menu" aria-label="Toggle navigation" aria-expanded="false"><i data-lucide="menu"></i></button><div class="header-title">Phishing URL Detection <span>& Typosquatting Analysis</span></div><span class="version">RESEARCH EDITION</span></header><main><div class="page-heading"><div><div class="eyebrow">UMMU URL GUARD</div><h1 id="title"></h1><p id="subtitle"></p></div><div class="connection-badges" role="status" aria-live="polite"><span id="backend-status" class="model-status" data-state="checking">Checking Python API…</span><span id="model-status" class="model-status">Model status unknown</span></div></div><div id="view"></div><footer>UMMU URL GUARD · Research workspace <span>Machine learning prediction is an indicator, not a guarantee of website safety.</span></footer></main></div>`;
 const icons = {
   ShieldCheck,
   LayoutDashboard,
@@ -112,6 +113,13 @@ const ctx = {
   file: null,
   report: Array.isArray(saved) ? saved[0] : null,
   refreshStatus: () => {},
+  connection: {
+    connection: "checking",
+    checking: true,
+    health: null,
+    checkedAt: null,
+    error: null,
+  },
 };
 function render() {
   const id = Object.hasOwn(routes, location.hash.slice(1))
@@ -129,22 +137,48 @@ function render() {
   document.getElementById("sidebar").classList.remove("open");
   document.getElementById("mobile-menu").setAttribute("aria-expanded", "false");
   page.render(ctx);
+  showConnection(ctx.connection);
+  const check = document.getElementById("check-backend");
+  if (check) check.onclick = () => ctx.refreshStatus();
 }
-ctx.refreshStatus = async () => {
-  try {
-    const health = await request("/health");
-    document.getElementById("model-status").textContent = health.model_available
-      ? "Production model available"
-      : "Model not available";
-    if (!ctx.report && health.report) {
-      ctx.report = health.report;
-      render();
+let pendingHealth = null;
+ctx.refreshStatus = () => {
+  if (pendingHealth) return pendingHealth;
+  ctx.connection.checking = true;
+  showConnection(ctx.connection);
+  pendingHealth = (async () => {
+    let reportChanged = false;
+    try {
+      const health = await getHealth();
+      ctx.connection = { connection: "connected", health, error: null };
+      if (!ctx.report && health.report) {
+        ctx.report = health.report;
+        reportChanged = true;
+      }
+    } catch (error) {
+      ctx.connection = {
+        connection: "unavailable",
+        health: null,
+        error: error.message,
+      };
+    } finally {
+      ctx.connection.checkedAt = new Date().toISOString();
+      ctx.connection.checking = false;
+      pendingHealth = null;
+      if (reportChanged && (!location.hash || location.hash === "#dashboard"))
+        render();
+      else showConnection(ctx.connection);
     }
-  } catch {
-    document.getElementById("model-status").textContent =
-      "Python API unavailable";
-  }
+  })();
+  return pendingHealth;
 };
+setInterval(() => {
+  if (!document.hidden) ctx.refreshStatus();
+}, 15000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) ctx.refreshStatus();
+});
+window.addEventListener("online", () => ctx.refreshStatus());
 document.getElementById("mobile-menu").onclick = (event) => {
   const open = document.getElementById("sidebar").classList.toggle("open");
   event.currentTarget.setAttribute("aria-expanded", String(open));

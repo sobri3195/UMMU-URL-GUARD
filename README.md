@@ -9,12 +9,38 @@ Use Python **3.12** and Node **22+**. In the repository root:
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
+pip install -r requirements.txt
 pip install -r requirements-dev.txt
-npm ci
+npm install
 python -m uvicorn api.index:app --host 127.0.0.1 --port 8000 --no-access-log
 ```
 
-In another terminal, run `npm run dev`. Vite forwards `/api` to Python on port 8000; no CORS configuration is needed. For separate origins, set `ALLOWED_ORIGINS` to an explicit comma-separated list. Environment variables must be exported into the Python process; `.env.example` is documentation, not an automatically loaded secret file.
+In a second terminal **in the same repository root**, run `npm run dev`. Vite uses port **5173** and forwards only the `/api` namespace to FastAPI on port **8000**. A busy frontend port causes an explicit error instead of silently moving to another port. The backend is Python; Node runs Vite/build tools only.
+
+For the development proxy, copy `.env.example` to `.env` and adjust the server-only `API_PROXY_TARGET` if the Python port differs. Vite reads this file on startup; restart Vite after changes. Browser requests always use same-origin `/api`, so no `VITE_API_URL` or browser secret is needed. Example for a different port:
+
+```bash
+# Backend terminal (with the virtual environment active):
+python -m uvicorn api.index:app --host 127.0.0.1 --port 8001 --no-access-log
+# Frontend terminal:
+API_PROXY_TARGET=http://127.0.0.1:8001 npm run dev
+```
+
+Same-origin proxy and Vercel deployment need no CORS configuration. For a separate frontend origin, export `ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173` **before starting Python**. Only explicit HTTP(S) origins are accepted; wildcards, credentials, and URL paths fail startup with a configuration error. CORS also applies to upload/rate-limit errors. Python reads exported process variables; it does **not** load Vite's `.env` automatically. Set deployed values in Vercel project environment settings.
+
+The dashboard and page header show backend connection separately from production-model availability. A real, schema-validated `/api/health` response is required before showing **Backend connected**. Health is checked at startup, every 15 seconds while visible, on returning to the tab, when browser connectivity returns, or using **Check connection**. Health requests time out after four seconds and bypass caching. Failed/HTML/malformed responses show **Python API unavailable** and **Model status unknown**, plus the actual error; a missing model alone does not mean the backend is offline.
+
+Manual API checks from a third terminal:
+
+```bash
+curl --fail-with-body http://127.0.0.1:8000/api/health
+curl --fail-with-body -H 'Content-Type: application/json' \
+  -d '{"url":"https://example.com/login?q=123"}' http://127.0.0.1:8000/api/features
+# Repeat through Vite, proving its proxy reaches Python:
+curl --fail-with-body http://127.0.0.1:5173/api/health
+```
+
+Health returns backend status, `backend: "fastapi"`, `app_version: "1.0.1"`, `model_status`, `model_available`, and the actual model version/report when present. No trained artifact means `model_status: "unavailable"`; lexical extraction still returns actual computed values. To verify failure handling manually, stop only the FastAPI process and keep Vite open: within one polling cycle the connection must fail, and submitting Feature Extraction must show an error. Restart FastAPI and press **Check connection** to recover.
 
 Run `python -m pytest -q`, `npm test`, `pip check`, `npm audit`, and `npm run build`. Tests use controlled synthetic fixtures to test mechanics; their scores are **not research evidence** and are never shipped as application data.
 
@@ -28,6 +54,17 @@ npm run test:browser
 ```
 
 This checks all nine pages, actual API feature/CSV/training flows, masked history/deletion, desktop/mobile overflow, and uncaught page errors. Screenshots go into ignored `artifacts/`. The isolated browser context is cleared and closed afterward. Run `npm run format:check` for frontend/Markdown formatting.
+
+### Foundation integration test
+
+```bash
+# With the virtual environment active and Playwright Chromium installed:
+npm run test:foundation
+# Cloud runtime with retained Python/system Chromium:
+PYTHON=/workspace/ummu-venv/bin/python CHROMIUM_PATH=/usr/bin/chromium npm run test:foundation
+```
+
+This test owns dedicated ports **18001** (FastAPI) and **5174** (Vite) and refuses to reuse occupied ports. It starts real services, exercises browser health/features and CORS, stops its backend to check scheduled outage detection and cold-load failure, verifies the feature error, restarts Python, and checks recovery. It stops its own services afterward. `npm test` also compiles `vercel.json` with Vercel's routing utility: `/api`, `/api/`, and nested/unknown API paths cannot match the SPA rewrite. Local unknown API paths return JSON 404; frontend routes return HTML. This checks configuration locally, not a hosted Vercel deployment. The development-only Vercel compiler uses an npm override to patched `path-to-regexp` 6.3.0; its upstream 6.1.0 dependency is vulnerable.
 
 ## Research workflow
 
@@ -84,18 +121,18 @@ History is stored under `ummu_url_guard_history` in localStorage, at most 200 re
 
 ## API
 
-See `/docs` for generated schemas. JSON URL bodies are `{ "url": "https://example.com/" }`.
+See local FastAPI `/docs` for generated schemas (on the Python port). JSON URL bodies are `{ "url": "https://example.com/" }`.
 
-| Method | Endpoint               | Behavior                                                              |
-| ------ | ---------------------- | --------------------------------------------------------------------- |
-| GET    | `/api/health`          | Backend and production-model availability                             |
-| POST   | `/api/predict`         | Lexical features and production prediction, if available              |
-| POST   | `/api/scan`            | Prediction plus separate bounded online metadata                      |
-| POST   | `/api/features`        | Python-computed values and feature definitions                        |
-| POST   | `/api/dataset/analyze` | CSV validation/summary; multipart `file`                              |
-| POST   | `/api/train`           | Actual six-model experiment; multipart `file`                         |
-| POST   | `/api/evaluate`        | Stateless rerun/evaluation from the same CSV/config; multipart `file` |
-| POST   | `/api/experiment`      | Same controlled basic/extended experiment; multipart `file`           |
+| Method | Endpoint               | Behavior                                                               |
+| ------ | ---------------------- | ---------------------------------------------------------------------- |
+| GET    | `/api/health`          | Backend status, application version, and production-model availability |
+| POST   | `/api/predict`         | Lexical features and production prediction, if available               |
+| POST   | `/api/scan`            | Prediction plus separate bounded online metadata                       |
+| POST   | `/api/features`        | Python-computed values and feature definitions                         |
+| POST   | `/api/dataset/analyze` | CSV validation/summary; multipart `file`                               |
+| POST   | `/api/train`           | Actual six-model experiment; multipart `file`                          |
+| POST   | `/api/evaluate`        | Stateless rerun/evaluation from the same CSV/config; multipart `file`  |
+| POST   | `/api/experiment`      | Same controlled basic/extended experiment; multipart `file`            |
 
 Training endpoints accept `seed=42&n_estimators=100` query options. There is no server-side experiment database: the UI evaluates and compares the actual report returned by training rather than resubmitting fabricated metrics. Re-running any experiment is explicitly a new fit, not an independent test dataset.
 
