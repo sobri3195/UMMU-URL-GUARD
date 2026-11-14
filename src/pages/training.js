@@ -1,30 +1,12 @@
-import { upload } from "../utils/api.js";
-import { download, saveExperiment } from "../utils/storage.js";
-import { bindForm, notice, table } from "../utils/ui.js";
-import { chooseFile, fileInput } from "./dataset.js";
+import { notice } from "../utils/ui.js";
+import {
+  controls,
+  bindControls,
+  resultSummary,
+  bindExport,
+} from "./research.js";
 export function render(ctx) {
-  ctx.view.innerHTML = `<article class="panel"><h2>Reproducible model training</h2><p>Fit Random Forest, Logistic Regression, and Decision Tree for both basic and extended features. Train / validation / test groups target 70 / 15 / 15%. Related registered domains stay together. At least 20 domain groups, each class present in three groups, and both classes in every split are required.</p><form id="train-form">${fileInput}<p class="muted">${ctx.file ? "The dataset selected on Dataset Management will be reused if no new file is chosen." : "Upload your own labeled dataset. No training data is bundled."}</p><div class="form-grid"><label>Random seed<input name="seed" type="number" min="0" max="2147483617" value="42" required></label><label>RF estimators<input name="estimators" type="number" min="20" max="150" value="100" required></label></div><p class="muted">max_depth: 8 / 16 (selected by validation F1) · min_samples_split: 2 · min_samples_leaf: 1 · class_weight: balanced · n_jobs: 1</p><button type="submit">Start training</button></form><p id="feedback" class="error" role="alert"></p><div id="result"></div></article>${notice("Online training is a temporary experiment. It never replaces the deployed model. For permanent inference: train locally, review the artifacts, and redeploy.")}`;
-  bindForm("train-form", async (data) => {
-    const output = document.getElementById("result");
-    const file = chooseFile(data, ctx);
-    ctx.file = file;
-    const report = await upload(
-      `/train?seed=${Number(data.get("seed"))}&n_estimators=${Number(data.get("estimators"))}`,
-      file,
-    );
-    ctx.report = report;
-    const saved = saveExperiment(report);
-    output.innerHTML = `<h3>Training completed</h3>${table(
-      ["Partition", "Rows", "Domain groups", "Actual row fraction"],
-      Object.entries(report.split).map(([name, split]) => [
-        name,
-        split.rows,
-        split.groups,
-        `${(split.row_fraction * 100).toFixed(1)}%`,
-      ]),
-    )}<p>${report.split_policy}</p><p>${report.selection_policy}</p><p>Split method: ${report.split_details.method}. Selected production RF max_depth: ${report.production_model.config.max_depth}. Feature schema: ${report.schema_version}.</p><div class="actions"><a class="button" href="#evaluation">Evaluate model</a><a class="button secondary" href="#experiments">Compare feature sets</a><button class="secondary" id="export-training">Export results</button></div>${notice(saved ? "Aggregate experiment summary saved locally. Curves and row-level errors are kept only in this session." : "Browser storage unavailable. Export results before leaving.")}`;
-    document.getElementById("export-training").onclick = () =>
-      download("experiment.json", report);
-    ctx.refreshStatus();
-  });
+  ctx.view.innerHTML = `<article class="panel"><h2>Reproducible model training</h2><p>Fit all three families and compare basic/extended features. At least 20 domain groups, with each class present in three groups, are required. Files stay in this tab only; aggregate results can survive refresh.</p>${controls(ctx, "/train", "Start Training")}</article><article class="panel">${resultSummary(ctx)}</article>${notice("Online experiments never activate a production model. Train a trusted artifact locally and redeploy for inference.")}`;
+  bindControls(ctx, "/train");
+  bindExport(ctx);
 }

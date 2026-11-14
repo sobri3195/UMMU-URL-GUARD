@@ -15,7 +15,8 @@ import {
 } from "lucide";
 import { getHealth } from "./utils/api.js";
 import { showConnection } from "./utils/connection.js";
-import { KEYS, read } from "./utils/storage.js";
+import { KEYS, loadExperiment } from "./utils/storage.js";
+import { createWorkspace, startPage } from "./utils/workspace.js";
 import { clearCharts } from "./utils/charts.js";
 import * as dashboard from "./pages/dashboard.js";
 import * as scanner from "./pages/scanner.js";
@@ -92,7 +93,7 @@ document.getElementById("app").innerHTML =
     )
     .join(
       "",
-    )}</nav><div class="sidebar-note"><span class="status-dot"></span>Research, responsibly.<p>Predictions are indicators.<br>Always verify independently.</p></div></aside><div class="workspace"><header><button id="mobile-menu" aria-label="Toggle navigation" aria-expanded="false"><i data-lucide="menu"></i></button><div class="header-title">Phishing URL Detection <span>& Typosquatting Analysis</span></div><span class="version">RESEARCH EDITION</span></header><main><div class="page-heading"><div><div class="eyebrow">UMMU URL GUARD</div><h1 id="title"></h1><p id="subtitle"></p></div><div class="connection-badges" role="status" aria-live="polite"><span id="backend-status" class="model-status" data-state="checking">Checking Python API…</span><span id="model-status" class="model-status">Model status unknown</span></div></div><div id="view"></div><footer>UMMU URL GUARD · Research workspace <span>Machine learning prediction is an indicator, not a guarantee of website safety.</span></footer></main></div>`;
+    )}</nav><div class="sidebar-note"><span class="status-dot"></span>Research, responsibly.<p>Predictions are indicators.<br>Always verify independently.</p></div></aside><div class="workspace"><header><button id="mobile-menu" aria-label="Toggle navigation" aria-expanded="false"><i data-lucide="menu"></i></button><div class="header-title">Phishing URL Detection <span>& Typosquatting Analysis</span></div><span class="version">RESEARCH EDITION</span></header><main><div class="page-heading"><div><div class="eyebrow">UMMU URL GUARD</div><h1 id="title"></h1><p id="subtitle"></p></div><div class="connection-badges" role="status" aria-live="polite"><span id="backend-status" class="model-status" data-state="checking">Checking Python API…</span><span id="model-status" class="model-status">Model status unknown</span></div></div><p id="job-status" class="notice" role="status" hidden></p><div id="view"></div><footer>UMMU URL GUARD · Research workspace <span>Machine learning prediction is an indicator, not a guarantee of website safety.</span></footer></main></div>`;
 const icons = {
   ShieldCheck,
   LayoutDashboard,
@@ -107,11 +108,9 @@ const icons = {
   Menu,
 };
 createIcons({ icons });
-const saved = read(KEYS.experiments, []);
 const ctx = {
+  ...createWorkspace(),
   view: document.getElementById("view"),
-  file: null,
-  report: Array.isArray(saved) ? saved[0] : null,
   refreshStatus: () => {},
   connection: {
     connection: "checking",
@@ -126,6 +125,7 @@ function render() {
     ? location.hash.slice(1)
     : "dashboard";
   const [name, subtitle, , page] = routes[id];
+  startPage(ctx, id);
   clearCharts();
   document.getElementById("title").textContent = name;
   document.getElementById("subtitle").textContent = subtitle;
@@ -137,10 +137,28 @@ function render() {
   document.getElementById("sidebar").classList.remove("open");
   document.getElementById("mobile-menu").setAttribute("aria-expanded", "false");
   page.render(ctx);
+  updateJobStatus();
   showConnection(ctx.connection);
   const check = document.getElementById("check-backend");
   if (check) check.onclick = () => ctx.refreshStatus();
 }
+function updateJobStatus() {
+  const element = document.getElementById("job-status");
+  element.hidden = !ctx.job;
+  element.textContent = ctx.job
+    ? `Research request running: ${ctx.job.datasetName}. Results will be retained in this tab when it completes.`
+    : "";
+}
+ctx.render = render;
+ctx.renderResearch = () => {
+  updateJobStatus();
+  if (
+    ["training", "experiments", "evaluation", "analysis", "dashboard"].includes(
+      ctx.route,
+    )
+  )
+    render();
+};
 let pendingHealth = null;
 ctx.refreshStatus = () => {
   if (pendingHealth) return pendingHealth;
@@ -184,5 +202,14 @@ document.getElementById("mobile-menu").onclick = (event) => {
   event.currentTarget.setAttribute("aria-expanded", String(open));
 };
 window.addEventListener("hashchange", render);
+window.addEventListener("storage", (event) => {
+  if (event.key === KEYS.experiments && !ctx.job) ctx.report = loadExperiment();
+  if (
+    [KEYS.history, KEYS.experiments, null].includes(event.key) &&
+    ["dashboard", "history"].includes(ctx.route) &&
+    !document.activeElement.matches("input, select, textarea")
+  )
+    render();
+});
 render();
 ctx.refreshStatus();

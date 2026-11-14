@@ -1,3 +1,10 @@
+export class APIError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.name = "APIError";
+    this.status = status;
+  }
+}
 const isObject = (value) =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 const nonempty = (value) => typeof value === "string" && value.length > 0;
@@ -157,8 +164,9 @@ export async function request(path, options = {}) {
     }
     const type = response.headers.get("content-type") || "";
     if (!/^application\/(?:[\w.-]+\+)?json(?:\s*;|$)/i.test(type)) {
-      throw new Error(
+      throw new APIError(
         `API returned HTTP ${response.status} without JSON. Check FastAPI and /api routing; a frontend HTML page is not an API response.`,
+        response.status,
       );
     }
     let data;
@@ -168,8 +176,9 @@ export async function request(path, options = {}) {
       throw new Error(`API returned malformed JSON (HTTP ${response.status}).`);
     }
     if (!response.ok) {
-      throw new Error(
+      throw new APIError(
         `API HTTP ${response.status}: ${typeof data?.detail === "string" ? data.detail : JSON.stringify(data?.detail ?? "Request failed")}`,
+        response.status,
       );
     }
     return validateResponse(path.split("?")[0], data);

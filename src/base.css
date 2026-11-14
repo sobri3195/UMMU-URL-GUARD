@@ -717,3 +717,79 @@ svg {
   height: 550px;
   margin: 20px 0;
 }
+
+[hidden] {
+  display: none !important;
+}
+.empty {
+  display: grid;
+  place-items: center;
+  min-height: 100px;
+  text-align: center;
+  color: #64748b;
+  margin: 0;
+  padding: 20px;
+}
+.chart > .empty {
+  height: 100%;
+}
+.history-filters {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 16px;
+}
+.history-filters input,
+.history-filters select,
+form select {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+}
+.row-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.history-detail {
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  padding: 20px;
+  border-radius: 8px;
+  margin-top: 20px;
+}
+.history-detail:focus {
+  outline: 2px solid #2563eb;
+}
+button:focus-visible,
+a:focus-visible,
+summary:focus-visible {
+  outline: 3px solid #93c5fd;
+  outline-offset: 3px;
+}
+ol {
+  overflow-wrap: anywhere;
+}
+input:disabled {
+  background: #f1f5f9;
+  color: #64748b;
+}
+#job-status {
+  margin-top: 0;
+}
+.notice p:last-child {
+  margin-bottom: 0;
+}
+@media (max-width: 760px) {
+  .history-filters {
+    grid-template-columns: 1fr;
+  }
+  .history-detail {
+    padding: 12px;
+  }
+  .row-actions {
+    min-width: 110px;
+  }
+  .form-grid select {
+    max-width: 100%;
+  }
+}

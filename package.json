@@ -12,7 +12,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test:foundation": "node tests/foundation.cjs",
-    "test:scanner": "node tests/scanner-browser.cjs"
+    "test:scanner": "node tests/scanner-browser.cjs",
+    "test:components": "node tests/frontend-components.cjs",
+    "test:frontend": "node tests/frontend-browser.cjs"
   },
   "dependencies": {
     "chart.js": "^4.5.1",

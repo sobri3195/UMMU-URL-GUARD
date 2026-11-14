@@ -33,7 +33,7 @@ export function render(ctx) {
   )}<div class="actions"><button id="export-json">Export JSON</button><button id="export-csv" class="secondary">Export comparison CSV</button><button id="export-summary" class="secondary">Export research summary</button></div><h3>Model comparison</h3>${table(metricHeaders, metricRows(report))}<h3>RF feature importance (impurity-based; may favor high-cardinality features)</h3><div class="importance-chart"><canvas id="feature-importance" aria-label="Actual Random Forest feature importance"></canvas></div>${table(
     ["Rank", "Feature", "Importance"],
     ranking.map(([name, score], i) => [i + 1, name, pct(score)]),
-  )}<h3>RF false positives and false negatives</h3><p>${rf.error_count} errors on held-out data: ${rf.false_positive_count ?? "N/A"} false positives, ${rf.false_negative_count ?? "N/A"} false negatives. Up to 50 masked rows per error type are shown. Paths, query strings, and fragments are redacted.</p>${
+  )}<h3>RF false positives and false negatives</h3><p>${escape(rf.error_count)} errors on held-out data: ${escape(rf.false_positive_count ?? "N/A")} false positives, ${escape(rf.false_negative_count ?? "N/A")} false negatives. Up to 50 masked rows per error type are shown. Paths, query strings, and fragments are redacted.</p>${
     rf.errors
       ? table(
           ["Error type", "Masked URL", "Actual", "Predicted"],

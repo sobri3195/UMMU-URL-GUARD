@@ -57,7 +57,7 @@ test("CSV prevents formulas and quotes strings", () => {
   assert.ok(text.includes("'="));
   assert.ok(text.includes("' \t@"));
   assert.ok(text.includes('""quote""'));
-  assert.equal(maskURL("javascript:alert(1)"), "javascript:///[redacted]");
+  assert.equal(maskURL("javascript:alert(1)"), "[redacted URL]");
 });
 test("experiment persistence excludes datasets and row-level errors", () => {
   saveExperiment({
@@ -70,4 +70,53 @@ test("experiment persistence excludes datasets and row-level errors", () => {
     ],
   });
   assert.equal(data.get(KEYS.experiments).includes("sensitive"), false);
+});
+
+test("history details and legacy rows are masked before read/export", () => {
+  data.clear();
+  saveScan({
+    url: "https://user:password@example.com/path?token=never-persist",
+    features: { url_length: 40 },
+    online: {
+      status: "complete",
+      final_url: "https://final.com/token-in-path?q=secret",
+      http_status: 200,
+      chain: [
+        { url: "https://example.com/private?q=secret", http_status: 302 },
+      ],
+    },
+  });
+  const raw = data.get(KEYS.history);
+  assert.equal(
+    /password|never-persist|token-in-path|q=secret/.test(raw),
+    false,
+  );
+  assert.equal(history()[0].details.features.url_length, 40);
+  data.set(
+    KEYS.history,
+    JSON.stringify([
+      { id: "legacy", url: "https://u:p@example.com/path?token=old" },
+    ]),
+  );
+  assert.equal(history()[0].url, "https://example.com/[redacted]");
+});
+test("quota failure preserves existing history and never claims a saved record", () => {
+  data.clear();
+  saveScan({ url: "https://example.com" });
+  const before = data.get(KEYS.history);
+  const original = localStorage.setItem;
+  localStorage.setItem = () => {
+    throw new Error("quota");
+  };
+  assert.equal(saveScan({ url: "https://other.com" }), false);
+  assert.equal(data.get(KEYS.history), before);
+  localStorage.setItem = original;
+});
+
+test("retrying persistence with the same scan ID cannot duplicate history", () => {
+  data.clear();
+  const value = { url: "https://example.com" };
+  assert.equal(saveScan(value, "same-scan"), true);
+  assert.equal(saveScan(value, "same-scan"), true);
+  assert.equal(history().length, 1);
 });

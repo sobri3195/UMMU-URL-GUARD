@@ -38,6 +38,8 @@ mkdirSync("artifacts", { recursive: true });
   await page.locator("#url").fill("https://gooogle.com/login?token=abc");
   await page.getByRole("button", { name: "Extract features" }).click();
   await page
+    .locator("#result table")
+    .first()
     .getByRole("cell", { name: "suspicious_keywords", exact: true })
     .waitFor();
   await page.goto("http://127.0.0.1:5173/#scanner");
@@ -79,7 +81,7 @@ mkdirSync("artifacts", { recursive: true });
     await page.goto("http://127.0.0.1:5173/#training");
     await page.locator("[name=estimators]").fill("20");
     await page
-      .getByRole("button", { name: "Start training", exact: true })
+      .getByRole("button", { name: "Start Training", exact: true })
       .click();
     await page
       .getByRole("heading", { name: "Training completed" })

@@ -1,5 +1,5 @@
 import { post } from "../utils/api.js";
-import { KEYS, read, write, saveScan } from "../utils/storage.js";
+import { KEYS, read, write, saveScan, history } from "../utils/storage.js";
 import {
   bindForm,
   escape,
@@ -101,11 +101,36 @@ function scanResult(result, original, requestMs, saved) {
       value,
       result.definitions?.[name],
     ]),
-  )}</section>${notice(saved ? "History saved on this browser with path, query, and fragment redacted." : "Browser storage is unavailable; this scan was not saved.", saved ? "" : "warning")}`;
+  )}</section>${notice(saved ? "History saved on this browser with path, query, and fragment redacted." : "This result is not currently in saved history. Use Save masked history to retry; storage may be unavailable or history may have been cleared.", saved ? "" : "warning")}`;
 }
 
 export function render(ctx) {
+  const state = ctx.state.scanner;
+  const page = ctx.page;
   ctx.view.innerHTML = `<article class="panel"><h2>Inspect a URL</h2><p>Analyze lexical signals and optionally check public DNS, HEAD responses, and up to five redirects. The browser never opens the target.</p>${urlForm("scan-form", "Scan URL", true)}</article><div class="notice">Machine learning prediction is an indicator, not a guarantee of website safety.</div>`;
+  const input = document.getElementById("url");
+  input.value = state.url;
+  input.oninput = () => {
+    state.url = input.value;
+  };
+  const resultElement = document.getElementById("result");
+  function showSaved() {
+    if (!page.active() || !state.result) return;
+    state.result.saved = Boolean(
+      state.result.savedId &&
+      history().some((row) => row.id === state.result.savedId),
+    );
+    const { result, original, requestMs, saved } = state.result;
+    resultElement.innerHTML =
+      `<div class="actions"><button type="button" id="save-scan" ${saved ? "disabled" : ""}>${saved ? "Saved to history" : "Save masked history"}</button></div>` +
+      scanResult(result, original, requestMs, saved);
+    resultElement.querySelector("#save-scan").onclick = () => {
+      if (state.result.saved) return;
+      state.result.saved = saveScan(result, state.result.savedId);
+      showSaved();
+    };
+  }
+  showSaved();
   const checkbox = document.querySelector("[name=online]");
   checkbox.checked = read(KEYS.settings, {}).online !== false;
   checkbox.addEventListener("change", () =>
@@ -116,13 +141,17 @@ export function render(ctx) {
   document.getElementById("scan-form").addEventListener("reset", (event) => {
     event.preventDefault();
     document.getElementById("url").value = "";
+    state.url = "";
+    state.result = null;
     generation += 1;
     active?.abort();
     document.getElementById("result").innerHTML = "";
     document.getElementById("feedback").textContent = "";
   });
   bindForm("scan-form", async (data) => {
-    const output = document.getElementById("result");
+    const output = resultElement;
+    state.url = data.get("url");
+    state.result = null;
     const current = ++generation;
     active = new AbortController();
     output.setAttribute("aria-busy", "true");
@@ -132,18 +161,24 @@ export function render(ctx) {
       const result = await post(
         data.get("online") === "on" ? "/scan" : "/predict",
         { url: data.get("url") },
-        { timeoutMs: 25000, signal: active.signal },
+        {
+          timeoutMs: 25000,
+          signal: AbortSignal.any([active.signal, page.signal]),
+        },
       );
-      if (current !== generation) return;
-      const saved = saveScan(result);
-      output.innerHTML = scanResult(
+      if (current !== generation || !page.active()) return;
+      const savedId = crypto.randomUUID();
+      const saved = saveScan(result, savedId);
+      state.result = {
+        savedId,
         result,
-        data.get("url"),
-        Math.round(performance.now() - started),
+        original: data.get("url"),
+        requestMs: Math.round(performance.now() - started),
         saved,
-      );
+      };
+      showSaved();
     } catch (error) {
-      if (current !== generation) return;
+      if (current !== generation || !page.active()) return;
       output.innerHTML = "";
       throw error;
     } finally {
