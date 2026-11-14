@@ -669,3 +669,45 @@ svg {
   font-size: 12px;
   pointer-events: none;
 }
+
+.connection-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.model-status[data-state="connected"] {
+  color: #15803d;
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+.model-status[data-state="unavailable"] {
+  color: #b91c1c;
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+.connection-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+.connection-panel h2 {
+  font-size: 16px;
+}
+.connection-panel p {
+  margin: 5px 0;
+  overflow-wrap: anywhere;
+}
+.connection-panel button {
+  flex-shrink: 0;
+}
+@media (max-width: 760px) {
+  .connection-panel {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .connection-badges {
+    justify-content: flex-start;
+  }
+}
