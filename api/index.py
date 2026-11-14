@@ -9,15 +9,23 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, FastAPI, File, HTTPException, Response, UploadFile
+from fastapi import (
+    APIRouter,
+    FastAPI,
+    File,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
 from ml.dataset import analyze_csv
-from ml.features import DEFINITIONS, extract_features
+from ml.features import DEFINITIONS, REFERENCES, extract_features
 from ml.model import TRAIN_LOCK, load_production, predict
-from ml.scanner import scan_online
+from ml.scanner import scan_online, unavailable
 
 APP_VERSION = "1.0.1"
 router = APIRouter()
@@ -172,26 +180,50 @@ def health(response: Response):
 
 @router.post("/api/features")
 def features(body: URLRequest):
-    return {**extraction(body.url), "definitions": DEFINITIONS}
+    return {
+        **extraction(body.url),
+        "definitions": DEFINITIONS,
+        "reference_domains": list(REFERENCES),
+    }
 
 
 @router.post("/api/predict")
 def prediction(body: URLRequest):
     extracted = extraction(body.url)
     bundle, _ = load_production()
-    return {**extracted, **predict(extracted, bundle)}
+    return {
+        **extracted,
+        **predict(extracted, bundle),
+        "definitions": DEFINITIONS,
+        "reference_domains": list(REFERENCES),
+    }
 
 
 @router.post("/api/scan")
-async def scan(body: URLRequest):
+async def scan(body: URLRequest, request: Request):
+    started = time.monotonic()
     extracted = extraction(body.url)
-    online = await scan_online(extracted["url"])
+    slots = request.app.state.scan_slots
+    try:
+        async with asyncio.timeout(0.2):
+            await slots.acquire()
+    except TimeoutError:
+        online = unavailable("Scanner capacity reached; retry later", "scanner_busy")
+    else:
+        try:
+            online = await scan_online(extracted["url"])
+        finally:
+            slots.release()
     bundle, _ = await run_in_threadpool(load_production)
     final = extraction(online["final_url"]) if online["final_url"] else None
     return {
         **extracted,
         **predict(extracted, bundle),
         "online": online,
+        "input_url": body.url,
+        "definitions": DEFINITIONS,
+        "reference_domains": list(REFERENCES),
+        "scan_duration_ms": round((time.monotonic() - started) * 1000),
         "final_destination": final,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "prediction_target": "original normalized URL; online metadata is not a model input",
@@ -274,6 +306,7 @@ async def train(file: UploadFile = File(...), seed: int = 42, n_estimators: int 
 
 def create_app():
     application = FastAPI(title="UMMU URL GUARD", version=APP_VERSION)
+    application.state.scan_slots = asyncio.Semaphore(4)
     application.include_router(router)
     application.add_middleware(Limits)
     # CORS is outermost so upload/rate-limit errors also reach allowed clients.

@@ -99,3 +99,33 @@ test("caller cancellation and invalid endpoint paths cannot escape /api", async 
   await assert.rejects(request("https://evil.example"), /relative endpoint/);
   await assert.rejects(request("//evil.example"), /relative endpoint/);
 });
+
+test("scan responses preserve blocked/limited/error metadata independently of ML", async () => {
+  const payload = {
+    url: "https://example.com/",
+    schema_version: "lexical-v1",
+    features: { url_length: 20 },
+    definitions: { url_length: "URL characters" },
+    typosquatting: { indicator: false },
+    prediction: null,
+    online: {
+      status: "blocked",
+      chain: [],
+      redirect_count: 0,
+      http_status: null,
+    },
+  };
+  globalThis.fetch = async () => json(payload);
+  assert.equal(
+    (await post("/scan", { url: payload.url })).online.status,
+    "blocked",
+  );
+  for (const invalid of [
+    { ...payload, online: { ...payload.online, status: "safe" } },
+    { ...payload, online: { ...payload.online, redirect_count: 6 } },
+    { ...payload, features: { url_length: "fake" } },
+  ]) {
+    globalThis.fetch = async () => json(invalid);
+    await assert.rejects(post("/scan", { url: payload.url }), /Invalid/);
+  }
+});
