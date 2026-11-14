@@ -149,9 +149,44 @@ The scanner browser test starts actual Vite and FastAPI services on dedicated po
 
 ## Privacy and exports
 
-History is stored under `ummu_url_guard_history` in localStorage, at most 200 records. Paths, queries, and fragments are removed **before saving**, including tokens embedded in paths. The current on-screen scan/CSV preview necessarily shows submitted values; do not share screenshots containing sensitive URLs. Scheme/hostname remain in masked exports and may still be identifying.
+History is stored under `ummu_url_guard_history` in localStorage, at most 200 records and 512 KB. Numeric feature details, masked final URLs, and masked redirect chains are included for new records; legacy records retain only the details they actually contain. Paths, queries, and fragments are removed **before saving**, including tokens embedded in paths. The current on-screen scan/CSV preview necessarily shows submitted values; do not share screenshots containing sensitive URLs. Scheme/hostname remain in masked exports and may still be identifying.
 
 `ummu_url_guard_settings` stores the online-check preference. `ummu_url_guard_experiment_summaries` stores only the latest aggregate experiment, without uploaded datasets, error URLs, or curve points. Full current results stay in session memory and can be exported. localStorage is specific to the browser/device and can be unavailable or cleared. There is no synchronization or server-side dataset persistence. CSV exports neutralize spreadsheet formula prefixes. Untrusted URLs are displayed as text, never clickable target links or embedded frames.
+
+## Functional frontend (stage 4)
+
+All nine pages use actual Python API output or saved browser records; no dataset or experiment is seeded into the application.
+
+- Dashboard shows saved-scan statistics, backend/model availability, history in the browser time zone, and extended-feature model comparison from the current experiment. Missing data produces text empty states, not charts with invented values/axes. Genuine zero-valued results remain valid data.
+- Scanner guards duplicate submissions, cancels page-specific requests on navigation/Clear, keeps the last completed result/input during navigation, and offers a real storage retry if quota prevented autosave. It never visits a target in the browser.
+- Dataset Management preserves the selected File and actual validation summary during navigation, shows duplicate/missing/class/hash statistics, and calls `/api/features` for up to three preview URLs on demand. The file and preview stay in memory only. Summary downloads exclude raw preview URLs.
+- Feature Extraction compares up to four Python responses in memory, copies results with the Clipboard API (or explains its unavailability), and exports formula-safe CSV. Copy/export masks URL paths and queries. Clear comparison and Clear input are distinct real actions.
+- Training and Feature Experiment select a File, seed, tree count, and result model. **Result model selects which fitted family to inspect**; the existing API intentionally fits all three families and both scenarios. Unsupported depth/split editing is disabled with an explanation. Run Experiment calls `/api/experiment`, not a client-side approximation.
+- One shared research request can continue while navigating. Both research submit buttons are disabled while it runs. No progress percentage is invented. Errors keep previous results explicitly labeled as previous; 404/405/501 disable the unsupported action with a local-training command and an explicit retry that resubmits the selected CSV after a backend update.
+- Evaluation selects model and feature scenario, displays actual metrics/N/A reasons and confusion matrices, and draws actual ROC/PR data when present. Cached summaries explain missing curve points; they never synthesize them.
+- Result Analysis retains actual importance, FP/FN counts/rows and experiment provenance, with CSV/JSON/readable-summary exports. Full curves/error rows remain session-only; exported aggregate summaries are marked `aggregate_only` after refresh.
+- History supports domain search, class filtering, date sorting, masked details, deletion, confirmed clear-all, and filtered/sorted CSV/JSON exports. A refresh retains saved history; clear removes it. Reads also mask legacy records. Quota failures preserve existing records and visibly report failure. Summary storage is capped at 160 KB and never includes a dataset or row-level errors.
+
+`src/utils/workspace.js` owns tab-scoped state and research jobs. Each page has an AbortController; late page responses cannot draw into another route. Form handlers reject reentrant submissions. Charts are destroyed before replacement/navigation, and storage listeners are registered only once in the main module. Inputs/files/results persist within the tab as documented; raw inputs and uploaded files deliberately do not persist across refresh.
+
+### Frontend verification
+
+With Node/Python development dependencies and Playwright Chromium installed:
+
+```bash
+npm test
+npm run test:frontend
+npm run test:components
+npm run build
+# Cloud runtime alternative for either browser command:
+PYTHON=/workspace/ummu-venv/bin/python CHROMIUM_PATH=/usr/bin/chromium npm run test:frontend
+```
+
+`test:frontend` starts actual Vite/FastAPI on dedicated ports 5176/18003 with controlled outbound HEAD/DNS fixtures. It checks all routes, actual scanner/features API calls, duplicate-submit protection, invalid upload/training errors, history across refresh and clear, details/search/filter/sort, copy/exports, and desktop/tablet/phone layouts. No synthetic ML dataset is trained in the production application.
+
+`test:components` is a separate **isolated component unit test**, mounted in test-only HTML on port 5177 without the production app. Python generates real model/feature/statistic output from a unit fixture in memory; the component transport supplies that fixture output. This covers successful training/experiment controls, dataset/feature previews, all model/scenario selectors, actual report charts/exports, navigation cancellation, shared-job state, quotas, cached summaries and chart-instance cleanup. It is not a research benchmark or proof of training with a real research dataset. Test HTML, transport fixtures, and fixture generators are not imported or included in the production Vite build; there is no production mock switch.
+
+For a full browser training workflow with **your real** small research CSV, use `ML_TEST_DATASET=/path/to/validated-small.csv npm run test:browser` while the normal local services run. Without a real CSV that dataset-dependent workflow remains explicitly unrun. Public Vercel deployment is still unverified.
 
 ## API
 

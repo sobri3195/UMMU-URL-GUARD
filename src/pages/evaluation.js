@@ -1,16 +1,17 @@
 import { table, pct, notice, escape } from "../utils/ui.js";
 import { curve } from "../utils/charts.js";
+import { MODELS } from "./research.js";
 export function metricRows(report) {
-  return report.reports.map((r) => [
-    r.model_name,
-    r.feature_set,
+  return report.reports.map((row) => [
+    row.model_name,
+    row.feature_set,
     ...["accuracy", "precision", "recall", "f1", "roc_auc", "pr_auc"].map(
-      (k) =>
-        r.test[k] == null
-          ? `N/A — ${r.test.metric_reasons?.[k] || "Not available"}`
-          : pct(r.test[k]),
+      (key) =>
+        row.test[key] == null
+          ? `N/A — ${row.test.metric_reasons?.[key] || "Not available"}`
+          : pct(row.test[key]),
     ),
-    r.selected_on_validation ? "Yes" : "No",
+    row.selected_on_validation ? "Yes" : "No",
   ]);
 }
 export const metricHeaders = [
@@ -26,32 +27,49 @@ export const metricHeaders = [
 ];
 export function render(ctx) {
   if (!ctx.report) {
+    ctx.view.innerHTML =
+      notice(
+        "No evaluation data. Upload a labeled dataset and run Model Training.",
+      ) + '<a class="button" href="#training">Open Model Training</a>';
+    return;
+  }
+  const report = ctx.report,
+    model = ctx.state.config.model,
+    scenario = ctx.state.evaluation.scenario;
+  const row = report.reports.find(
+    (row) => row.model_name === model && row.feature_set === scenario,
+  );
+  if (!row) {
     ctx.view.innerHTML = notice(
-      "No evaluation data. Upload a labeled dataset and run Model Training.",
+      "This stored report does not contain the selected model/scenario.",
     );
     return;
   }
-  const report = ctx.report;
-  const rf = report.reports.find(
-    (r) => r.model_name === "Random Forest" && r.feature_set === "extended",
-  );
-  const m = rf.test.confusion_matrix;
-  ctx.view.innerHTML = `<article class="panel"><h2>Held-out model evaluation</h2><p>Experiment ${escape(report.experiment_id)} · Positive class: phishing · Identical test groups for all predeclared models.</p>${table(metricHeaders, metricRows(report))}<p class="muted">PR-AUC is reported as average precision. Scores are uncalibrated model estimates. Test data is never used to select models or fit the scaler.</p><h3>Random Forest — extended features</h3>${table(
+  const matrix = row.test.confusion_matrix;
+  ctx.view.innerHTML = `<article class="panel"><h2>Held-out model evaluation</h2><p>Experiment ${escape(report.experiment_id)} · ${escape(report.dataset.name)} · Positive class: phishing. Scores describe this dataset only.</p><div class="form-grid"><label>Model<select id="evaluate-model" aria-label="Model">${MODELS.map((name) => `<option ${name === model ? "selected" : ""}>${name}</option>`).join("")}</select></label><label>Feature set<select id="evaluate-scenario" aria-label="Feature set"><option value="basic">Basic features</option><option value="extended">Extended features</option></select></label></div>${table(metricHeaders, metricRows(report))}<h3>${escape(model)} — ${escape(scenario)} features</h3>${table(
     ["Actual / predicted", "Benign", "Phishing"],
     [
-      ["Benign", ...m[0]],
-      ["Phishing", ...m[1]],
+      ["Benign", ...matrix[0]],
+      ["Phishing", ...matrix[1]],
     ],
-  )}<h3>Partition class distribution</h3>${table(
+  )}<p class="muted">PR-AUC means average precision. Probabilities are uncalibrated model estimates. Testing never fits preprocessing or selects hyperparameters.</p><h3>Partition class distribution</h3>${table(
     ["Split", "Benign", "Phishing"],
-    Object.entries(report.split).map(([name, s]) => [
+    Object.entries(report.split).map(([name, value]) => [
       name,
-      s.classes.benign,
-      s.classes.phishing,
+      value.classes.benign,
+      value.classes.phishing,
     ]),
-  )}</article>${rf.test.roc ? '<div class="chart-grid"><article class="panel"><h3>ROC · x: FPR / y: TPR</h3><div class="chart"><canvas id="roc"></canvas></div></article><article class="panel"><h3>Precision–recall · x: recall / y: precision</h3><div class="chart"><canvas id="pr"></canvas></div></article></div>' : notice("Curve points are session-only. Rerun the reproducible experiment to display curves.")}`;
-  if (rf.test.roc) {
-    curve("roc", rf.test.roc.fpr, rf.test.roc.tpr, "RF ROC");
-    curve("pr", rf.test.pr.recall, rf.test.pr.precision, "RF precision–recall");
-  }
+  )}</article><div class="chart-grid"><article class="panel"><h3>ROC · x: FPR / y: TPR</h3>${row.test.roc ? '<div class="chart"><canvas id="roc" aria-label="Actual ROC curve"></canvas></div>' : notice(row.test.metric_reasons?.roc_auc || "Curve points were not stored in this aggregate summary. Rerun with your CSV to obtain actual curves.")}</article><article class="panel"><h3>Precision–recall · x: recall / y: precision</h3>${row.test.pr ? '<div class="chart"><canvas id="pr" aria-label="Actual precision-recall curve"></canvas></div>' : notice(row.test.metric_reasons?.pr_auc || "Curve points were not stored in this aggregate summary.")}</article></div>`;
+  if (row.test.roc) curve("roc", row.test.roc.fpr, row.test.roc.tpr, "ROC");
+  if (row.test.pr)
+    curve("pr", row.test.pr.recall, row.test.pr.precision, "Precision–recall");
+  document.getElementById("evaluate-scenario").value = scenario;
+  document.getElementById("evaluate-scenario").onchange = (event) => {
+    ctx.state.evaluation.scenario = event.target.value;
+    ctx.render();
+  };
+  document.getElementById("evaluate-model").onchange = (event) => {
+    ctx.state.config.model = event.target.value;
+    ctx.render();
+  };
 }

@@ -21,14 +21,23 @@ export function render(ctx) {
       accuracy == null ? "Belum ada data" : pct(accuracy),
     ],
   ];
-  ctx.view.innerHTML = `${connectionPanel()}<div class="welcome"><div><span class="eyebrow">RESEARCH WORKSPACE</span><h2>Understand the URL.<br>Investigate the indicators.</h2><p>Transparent features, reproducible experiments, and careful URL inspection.</p><a class="button" href="#scanner">Open URL scanner <span aria-hidden="true">→</span></a></div><div class="hero-symbol" aria-hidden="true"><svg viewBox="0 0 80 90" fill="none"><path d="M40 5 70 17v25c0 22-15 35-30 43C25 77 10 64 10 42V17L40 5Z" stroke="currentColor" stroke-width="3"/><path d="m25 43 10 10 22-23" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg></div></div><div class="stats">${cards.map(([label, value]) => `<article class="stat"><span>${escape(label)}</span><strong>${escape(value)}</strong></article>`).join("")}</div><p class="muted">Activity reflects up to 200 saved scans on this browser. Experiment accuracy is held-out research performance, not a safety guarantee.</p><div class="chart-grid">${["Prediction distribution", "Scans by day", "Short URL proportion", "Typosquatting indicators"].map((label, i) => `<article class="panel"><h3>${label}</h3><div class="chart"><canvas id="dash-${i}" aria-label="${label}"></canvas></div></article>`).join("")}</div>`;
+  ctx.view.innerHTML = `${connectionPanel()}<div class="welcome"><div><span class="eyebrow">RESEARCH WORKSPACE</span><h2>Understand the URL.<br>Investigate the indicators.</h2><p>Transparent features, reproducible experiments, and careful URL inspection.</p><a class="button" href="#scanner">Open URL scanner <span aria-hidden="true">→</span></a></div><div class="hero-symbol" aria-hidden="true"><svg viewBox="0 0 80 90" fill="none"><path d="M40 5 70 17v25c0 22-15 35-30 43C25 77 10 64 10 42V17L40 5Z" stroke="currentColor" stroke-width="3"/><path d="m25 43 10 10 22-23" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg></div></div><div class="stats">${cards.map(([label, value]) => `<article class="stat"><span>${escape(label)}</span><strong>${escape(value)}</strong></article>`).join("")}</div><p class="muted">Activity reflects up to 200 saved scans on this browser. Experiment accuracy is held-out research performance, not a safety guarantee.</p>${ctx.report ? `<p class="muted">Model summary source: ${escape(ctx.report.experiment_id)} · ${escape(ctx.report.dataset.name)}. <a href="#evaluation">View evaluation</a></p>` : '<p class="muted">No model comparison yet. <a href="#training">Run a real experiment</a>.</p>'}<div class="chart-grid">${["Prediction distribution", "Scans by day (browser time zone)", "Short URL proportion", "Model comparison — extended features"].map((label, i) => `<article class="panel"><h3>${label}</h3><div class="chart"><canvas id="dash-${i}" aria-label="${label}"></canvas></div></article>`).join("")}</div>`;
   const counts = ["phishing", "benign", null].map(
     (p) => rows.filter((r) => r.prediction === p).length,
   );
-  chart("dash-0", ["Phishing", "Benign", "Unavailable"], counts, "doughnut");
+  chart(
+    "dash-0",
+    ["Phishing", "Benign", "Unavailable"],
+    counts,
+    "doughnut",
+    "Count",
+    { empty: !rows.length },
+  );
   const days = {};
   rows.forEach((row) => {
-    const day = row.timestamp?.slice(0, 10);
+    const day = Number.isFinite(Date.parse(row.timestamp))
+      ? new Date(row.timestamp).toLocaleDateString("en-CA")
+      : null;
     if (day) days[day] = (days[day] || 0) + 1;
   });
   const labels = Object.keys(days).sort();
@@ -45,11 +54,16 @@ export function render(ctx) {
       rows.filter((r) => !r.shortener).length,
     ],
     "doughnut",
+    "Count",
+    { empty: !rows.length },
   );
+  const comparison =
+    ctx.report?.reports.filter((row) => row.feature_set === "extended") || [];
   chart(
     "dash-3",
-    ["Indicator", "No indicator"],
-    [rows.filter((r) => r.typo).length, rows.filter((r) => !r.typo).length],
-    "doughnut",
+    comparison.map((row) => row.model_name),
+    comparison.map((row) => row.test.accuracy),
+    "bar",
+    "Held-out accuracy",
   );
 }

@@ -1,14 +1,49 @@
 import Chart from "chart.js/auto";
-const active = [];
-export function clearCharts() {
-  active.splice(0).forEach((chart) => chart.destroy());
+const active = new Map();
+export function chartCount() {
+  return Object.keys(Chart.instances).length;
 }
-export function chart(id, labels, values, type = "bar", label = "Count") {
+export function destroyChart(id) {
+  const existing = active.get(id);
+  if (existing) {
+    existing.destroy();
+    active.delete(id);
+  }
+}
+function target(id, hasData = true) {
+  destroyChart(id);
   const element = document.getElementById(id);
+  if (!element) return null;
+  if (!hasData) {
+    const message = document.createElement("p");
+    message.className = "empty";
+    message.textContent = "Belum ada data — no results to plot.";
+    message.setAttribute("role", "status");
+    element.parentElement.replaceChildren(message);
+    return null;
+  }
+  return element;
+}
+export function clearCharts() {
+  for (const id of [...active.keys()]) destroyChart(id);
+}
+export function chart(
+  id,
+  labels,
+  values,
+  type = "bar",
+  label = "Count",
+  options = {},
+) {
+  const element = target(
+    id,
+    options.empty !== true &&
+      values.length > 0 &&
+      values.some((value) => value !== null && Number.isFinite(value)),
+  );
   if (!element) return;
-  if (!values.length || values.every((v) => v === 0))
-    element.parentElement.dataset.empty = "Belum ada data";
-  active.push(
+  active.set(
+    id,
     new Chart(element, {
       type,
       data: {
@@ -42,9 +77,11 @@ export function chart(id, labels, values, type = "bar", label = "Count") {
   );
 }
 export function curve(id, x, y, label) {
-  if (!document.getElementById(id)) return;
-  active.push(
-    new Chart(document.getElementById(id), {
+  const element = target(id, x?.length > 0 && y?.length === x?.length);
+  if (!element) return;
+  active.set(
+    id,
+    new Chart(element, {
       type: "line",
       data: {
         datasets: [
@@ -70,9 +107,10 @@ export function curve(id, x, y, label) {
 }
 
 export function featureImportance(id, ranking) {
-  const element = document.getElementById(id);
-  if (!element || !ranking.length) return;
-  active.push(
+  const element = target(id, ranking.length > 0);
+  if (!element) return;
+  active.set(
+    id,
     new Chart(element, {
       type: "bar",
       data: {

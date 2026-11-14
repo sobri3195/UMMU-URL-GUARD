@@ -155,10 +155,18 @@ async function ready(child, url) {
   await page.goto(host + "/#features");
   await page.locator("#url").fill(featureURL);
   await page.getByRole("button", { name: "Extract features" }).click();
-  await page.getByRole("cell", { name: "url_length", exact: true }).waitFor();
-  const lengthRow = page.locator("tr").filter({
-    has: page.getByRole("cell", { name: "url_length", exact: true }),
-  });
+  await page
+    .locator("#result table")
+    .first()
+    .getByRole("cell", { name: "url_length", exact: true })
+    .waitFor();
+  const lengthRow = page
+    .locator("#result table")
+    .first()
+    .locator("tr")
+    .filter({
+      has: page.getByRole("cell", { name: "url_length", exact: true }),
+    });
   assert.equal(
     await lengthRow.locator("td").nth(1).innerText(),
     String(featureURL.length),
