@@ -1,0 +1,6 @@
+.venv
+node_modules
+dist
+artifacts
+package-lock.json
+models/*.joblib

@@ -1,0 +1,1 @@
+No pretrained model is supplied. Use a licensed, provenance-documented labeled CSV with `python -m ml.train_local DATA.csv`. Review the generated metadata, then explicitly commit both models/model.joblib and models/model_metadata.json using `git add -f`. Only deploy artifacts you produced and trust. Joblib uses pickle; its checksum detects mismatch, not an untrusted producer.
