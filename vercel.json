@@ -3,7 +3,11 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": {
-    "api/index.py": { "maxDuration": 60, "includeFiles": "{ml/**,models/**}" }
+    "api/index.py": {
+      "maxDuration": 60,
+      "includeFiles": "{ml/**,models/**}",
+      "excludeFiles": ".vercel_python_packages/**"
+    }
   },
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api/index.py" },
