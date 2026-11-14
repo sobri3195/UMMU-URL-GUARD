@@ -70,32 +70,33 @@ This test owns dedicated ports **18001** (FastAPI) and **5174** (Vite) and refus
 
 1. Upload a UTF-8 CSV with exactly `url,label` columns. Labels are `phishing` / `benign`, case-insensitive. Use a licensed dataset with documented provenance, dates, and labeling methodology. No third-party dataset is automatically downloaded.
 2. Validate the dataset. Normalized duplicate URLs are removed. Missing/invalid rows and conflicting labels are rejected. The API returns counts, SHA-256, class distribution, and an eight-row preview.
-3. Train on at most 2 MB / 2,000 rows online. At least 20 distinct registered domains and three records per class are required, with both classes in each partition. Larger datasets use the local command below.
+3. Train on at most 2 MB / 2,000 rows online. At least 20 distinct registered domains and each class present in at least three domain groups are required, with both classes in each partition. Larger datasets use the local command below.
 4. Inspect all six predeclared model/scenario combinations, confusion matrix, ROC/PR curves, feature importance, and masked false positives/negatives. Export JSON, CSV, or the readable research summary.
 5. Scan URLs for real lexical indicators. Predictions are explicitly unavailable until a trusted production model is deployed. Online experiments **never** activate a model in the scanner.
 
 ### Train a production Random Forest
 
 ```bash
-python -m ml.train_local /path/to/labeled.csv --output models --seed 42
+python -m ml.train_local --dataset data/dataset.csv --output models --seed 42
+# Optional provenance fields: --source "dataset citation" --license "license name"
 # Review provenance, metrics, package versions and model checksum first.
 git add -f models/model.joblib models/model_metadata.json
 ```
 
-The local command uses the same feature and split definitions, with configurable `--max-rows` (100,000 default) and a 100 MB input limit. It writes the **extended-feature Random Forest**, even if a baseline has better validation F1. The artifact is fitted on the training partition only; it is not silently refitted on validation/test data. Use `--output /outside/the/repo` for experimental artifacts that should not ship.
+The local command uses the same feature and split definitions, with configurable `--max-rows` (100,000 default) and a 100 MB input limit. It selects Random Forest `max_depth` from 8/16 using **validation F1**, then writes the **extended-feature Random Forest**, even if a baseline has better validation F1. Logistic Regression and Decision Tree remain comparison baselines, not replacement production algorithms. Positional dataset paths are still supported for existing scripts. `--n-estimators` defaults to 100 (local range 20–1,000; online range 20–150). The artifact is fitted on the training partition only; it is not silently refitted on validation/test data. Use `--output /outside/the/repo` for experimental artifacts that should not ship.
 
-Joblib is pickle-based and can execute code. Never upload or load artifacts from an untrusted source. Inference loads only fixed, deployment-owned `models/model.joblib` and its metadata; artifact SHA-256, feature schema/order, and scikit-learn version are checked. A checksum verifies file consistency, not producer trust. Both trusted files must be included in the deployment. A missing/incompatible pair disables prediction.
+Joblib is pickle-based and can execute code. Never upload or load artifacts from an untrusted source. Inference loads only fixed, deployment-owned `models/model.joblib` and its metadata; artifact SHA-256, manifest/bundle version consistency, fitted Random Forest Pipeline, feature schema/order/fingerprint, PSL provenance, scikit-learn version, and Python major/minor compatibility are checked. Dependency versions are recorded for reproduction. Inference artifacts are capped at 100 MB; saving an oversized model fails instead of publishing a supposedly ready artifact. A checksum verifies file consistency, not producer trust. Both trusted files must be included in the deployment. A missing/incompatible pair disables prediction.
 
 ### Experiment design
 
-- `lexical-v1`: 20 fixed features in `ml/features.py`; numeric definitions are exposed by `/api/features`.
-- Seven basic lexical features versus all 20 extended features.
+- `lexical-v2`: 21 fixed features (including separate URL and hostname Shannon entropy) in `ml/features.py`; numeric definitions are exposed by `/api/features`.
+- Seven basic lexical features versus all 21 extended features.
 - Fixed shortener, keyword, and six-domain reference lists are versioned in source and recorded in each report. Punycode is normalized; ASCII edit similarity is an indicator, **not** full Unicode confusable detection.
-- Public Suffix List extraction uses the packaged snapshot (including private suffixes), with no runtime PSL downloads. Document reference-list overlap with datasets and keep lists fixed before comparison. Changing any definition/list requires retraining and a new schema version.
-- `GroupShuffleSplit` targets 70/15/15 **by registered-domain groups**. Actual row proportions are reported and may differ. Domain variants, paths, and subdomains within a registered domain cannot cross partitions. Cross-domain ownership/family relationships are not inferred; curate group definitions separately if your research requires them.
+- Public Suffix List extraction uses the packaged snapshot (including private suffixes), with no runtime PSL downloads. The pinned `tldextract` version, packaged PSL SHA-256, ordered names/definitions, reference domains, keywords, and shorteners form a SHA-256 feature fingerprint stored in reports and artifact manifests. Updating the PSL dependency or any feature definition requires explicit review/retraining; there is no silent background refresh. Document reference-list overlap with datasets and keep lists fixed before comparison. Changing any definition/list requires retraining and a new schema version.
+- A deterministic stratified shuffle of registered-domain group IDs targets 70/15/15 **by groups**, using benign-only / phishing-only / mixed-label strata. If two-stage stratification is incompatible with rare strata, a recorded `GroupShuffleSplit` fallback checks class presence only. Actual row proportions are reported and may differ. Domain variants, paths, and subdomains within a registered domain cannot cross partitions. Cross-domain ownership/family relationships are not inferred; curate group definitions separately if your research requires them.
 - Seed retries (at most 30) only ensure both classes occur in every split; the actual split seed and partition membership hash are recorded. No metric guides splitting.
-- Logistic Regression uses a `StandardScaler` pipeline fitted exclusively on training data. All models use fixed configurations, and validation F1 selects the preferred model in each scenario. Predeclared candidates are evaluated once on the same held-out test groups. Repeatedly inspecting the same test scores is not new independent evidence.
-- Positive class is phishing. PR-AUC means **average precision**. Unsupported metrics return N/A. Scores from `predict_proba` are labeled uncalibrated estimates.
+- All three families use scikit-learn Pipelines. Logistic Regression includes `StandardScaler` fitted exclusively on training data; trees need no scaling. Two predeclared Random Forest depths (8/16) are fitted on training data and compared on validation F1, with ties choosing the first/shallower depth. Fixed LR/DT baselines and the selected RF configuration are evaluated once per family/scenario on identical untouched test groups. No candidate is fitted again on validation or test data. Repeatedly inspecting the same test scores is not new independent evidence.
+- Positive class is phishing. PR-AUC means **average precision**. Undefined metrics return JSON null / N/A with a reason (for example precision with no positive predictions or ROC-AUC with one class). AP requires actual positives; an all-positive partition has defined AP but carries a caveat that it cannot measure discrimination against benign URLs. Confusion matrices always use benign/phishing row and column order. Scores from `predict_proba` are labeled uncalibrated estimates.
 - Research results include experiment/model ID, dataset name/hash, seed/configuration, split sizes/class counts/hash, feature lists and evaluation time. Impurity importance can favor high-cardinality features. Neither additional features nor high scores establish generalization to unseen threats.
 
 ## Scanner security and limits
@@ -129,7 +130,7 @@ Prediction uses the **original normalized URL**, not online metadata or the reso
 
 The network policy additionally blocks site-local IPv6, IPv4-mapped/6to4/Teredo/NAT64 addresses, Azure's platform address `168.63.129.16`, internal suffixes, and ambiguous numeric IP notation. Every A/AAAA answer that the system resolver returns is checked; at most 64 answers are accepted. The connection uses a validated numeric IP, certificate verification/SNI use the normalized original host, and the connected peer is checked **before** sending HEAD. Every redirect repeats these checks, including redirects on the same hostname. The transport closes immediately after headers. Request headers are capped at 8 KB, response headers at 16 KB / 100 fields, and each instance allows at most four active network scans. These supplement the existing five-second hop/15-second total deadlines and rate limits.
 
-The scanner page shows original and normalized URLs, final domain, actual target status, redirect chain, measured durations, exact-host shortener detection, original/final domain similarity, and all Python lexical features. Model status is separate; no artifact still means **Prediction unavailable**, not loss of lexical analysis. References and lexical feature definitions remain unchanged, so existing training/inference schemas do not drift. Punycode normalization and ASCII edit comparison do not provide comprehensive Unicode visual-confusable detection. Clear cancels the pending browser request and preserves the online-check preference.
+The scanner page shows original and normalized URLs, final domain, actual target status, redirect chain, measured durations, exact-host shortener detection, original/final domain similarity, and all Python lexical features. Model status is separate; no artifact still means **Prediction unavailable**, not loss of lexical analysis. References remain fixed. Stage 3 deliberately migrates features to `lexical-v2` to add URL entropy; old `lexical-v1` artifacts are rejected and must be retrained, rather than silently used with a different feature order. Punycode normalization and ASCII edit comparison do not provide comprehensive Unicode visual-confusable detection. Clear cancels the pending browser request and preserves the online-check preference.
 
 ### Scanner tests
 
@@ -153,6 +154,20 @@ History is stored under `ummu_url_guard_history` in localStorage, at most 200 re
 `ummu_url_guard_settings` stores the online-check preference. `ummu_url_guard_experiment_summaries` stores only the latest aggregate experiment, without uploaded datasets, error URLs, or curve points. Full current results stay in session memory and can be exported. localStorage is specific to the browser/device and can be unavailable or cleared. There is no synchronization or server-side dataset persistence. CSV exports neutralize spreadsheet formula prefixes. Untrusted URLs are displayed as text, never clickable target links or embedded frames.
 
 ## API
+
+### Stage 3 ML validation and production status
+
+No production model or dataset is bundled. No public dataset was downloaded, so no third-party dataset source/license is claimed. Training requires your own provenance-reviewed `url,label` CSV; optional local `--source` and `--license` fields record its citation and license without inventing either. Synthetic data is confined to tests/temp artifacts and must never be presented as research performance or committed as a production model.
+
+The dataset summary records raw and normalized row counts, duplicate removal, class distribution, missing-value rejection policy, preview, exact raw-file SHA-256, and an order-preserving normalized-record SHA-256. No target label or online DNS/HTTP result is included in features. Group ownership across different registered domains is still not inferred; curate additional groups if your study requires it.
+
+`/api/predict` returns actual Pipeline class/probability, model version/status, numeric features, and a UTC `prediction_timestamp`. Scores are **uncalibrated** estimates of phishing probability; no calibration dataset/method is used or implied. Missing/incompatible artifacts return null class/score/version and `model_status: unavailable`.
+
+Online experiments are capped at 2 MB CSV / 2,000 rows, a 2.1 MB complete multipart body, one experiment per instance, one numeric-library thread, and a 40-second child-process deadline. Timeout kills/reaps the child, releases the training lock, returns HTTP 408, and never reports training success. Nothing writes or activates production artifacts. Each response includes actual split row fractions/class counts, stratification/fallback details, selected/candidate configurations, feature/PSL fingerprint, package versions, test metrics/curves, and masked FP/FN records. Temporary Vercel files are not treated as persistent storage.
+
+Evaluation renders N/A reasons, real model comparison, ROC/PR curves, and FP/FN counts. Result Analysis includes a horizontal impurity-importance chart and a table from the fitted forest. Up to 50 masked errors per type are exported; aggregate error counts cover the entire holdout. JSON exports retain all experiment metadata; localStorage still excludes datasets and row-level errors.
+
+Run `python -m pytest -q` for feature/order/leakage/scaler-fit boundaries, actual three-family training, metrics including undefined cases, CLI compatibility, artifact/manifest round trips, real model-backed API prediction in an isolated unit test, online non-persistence, and worker timeout cleanup. Production remains unavailable until **you** train a reviewed dataset, explicitly commit the trusted artifact pair, and redeploy. Local tests do not establish hosted Vercel deployment readiness.
 
 See local FastAPI `/docs` for generated schemas (on the Python port). JSON URL bodies are `{ "url": "https://example.com/" }`.
 

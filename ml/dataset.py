@@ -1,6 +1,7 @@
 import csv
 import hashlib
 import io
+import json
 from collections import Counter
 
 import pandas as pd
@@ -11,10 +12,10 @@ MAX_BYTES = 2_000_000
 MAX_ROWS = 2000
 
 
-def analyze_csv(raw, name="dataset.csv", max_rows=MAX_ROWS):
-    if not raw or len(raw) > MAX_BYTES:
+def analyze_csv(raw, name="dataset.csv", max_rows=MAX_ROWS, max_bytes=MAX_BYTES):
+    if not raw or len(raw) > max_bytes:
         raise ValueError(
-            "CSV must be nonempty and at most 2 MB; use local training for larger datasets"
+            f"CSV must be nonempty and at most {max_bytes} bytes; use local training for larger datasets"
         )
     try:
         text = raw.decode("utf-8-sig", errors="strict")
@@ -55,6 +56,7 @@ def analyze_csv(raw, name="dataset.csv", max_rows=MAX_ROWS):
         raise ValueError(f"Dataset contains an invalid URL: {exc}") from None
     if (frame.groupby("url").label.nunique() > 1).any():
         raise ValueError("Identical normalized URLs have conflicting labels")
+    raw_records = len(frame)
     duplicates = int(frame.url.duplicated().sum())
     frame = frame.drop_duplicates("url").reset_index(drop=True)
     groups = frame.url.map(lambda url: domain_parts(url)[1])
@@ -62,6 +64,13 @@ def analyze_csv(raw, name="dataset.csv", max_rows=MAX_ROWS):
         "name": str(name)[:120],
         "sha256": hashlib.sha256(raw).hexdigest(),
         "records": len(frame),
+        "raw_records": raw_records,
+        "normalized_sha256": hashlib.sha256(
+            json.dumps(frame.to_dict("records"), sort_keys=True).encode()
+        ).hexdigest(),
+        "missing_value_policy": "Reject incomplete rows; no label or URL imputation",
+        "label_normalization": "strip whitespace, lowercase; phishing=1 and benign=0",
+        "class_ratio_phishing": float((frame.label == "phishing").mean()),
         "duplicates_removed": duplicates,
         "missing_values": missing,
         "classes": dict(Counter(frame.label)),

@@ -28,6 +28,7 @@ from ml.model import TRAIN_LOCK, load_production, predict
 from ml.scanner import scan_online, unavailable
 
 APP_VERSION = "1.0.1"
+ONLINE_TRAIN_TIMEOUT = 40
 router = APIRouter()
 
 
@@ -277,15 +278,18 @@ async def train(file: UploadFile = File(...), seed: int = 42, n_estimators: int 
             env=worker_env,
         )
         try:
-            output, _ = await asyncio.wait_for(process.communicate(raw), timeout=40)
+            output, _ = await asyncio.wait_for(
+                process.communicate(raw), timeout=ONLINE_TRAIN_TIMEOUT
+            )
         except (TimeoutError, asyncio.CancelledError) as exc:
-            process.kill()
+            if process.returncode is None:
+                process.kill()
             await process.wait()
             if isinstance(exc, asyncio.CancelledError):
                 raise
             raise HTTPException(
                 408,
-                "Training exceeded 40 seconds. Use python -m ml.train_local locally.",
+                f"Training exceeded {ONLINE_TRAIN_TIMEOUT} seconds. Use python -m ml.train_local --dataset DATA.csv locally.",
             ) from None
         try:
             result = json.loads(output)
@@ -294,10 +298,17 @@ async def train(file: UploadFile = File(...), seed: int = 42, n_estimators: int 
                 500,
                 "Experiment worker failed; use local training to inspect the dataset",
             ) from None
+        if not isinstance(result, dict):
+            raise HTTPException(500, "Experiment worker returned an invalid result")
         if process.returncode != 0 or "error" in result:
             raise HTTPException(
                 422, result.get("error", "Training failed; use local training")
             )
+        if (
+            not isinstance(result.get("report"), dict)
+            or len(result["report"].get("reports", [])) != 6
+        ):
+            raise HTTPException(500, "Experiment worker returned an incomplete result")
         return result["report"]
     finally:
         TRAIN_LOCK.release()

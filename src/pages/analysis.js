@@ -1,5 +1,6 @@
 import { download, toCSV } from "../utils/storage.js";
 import { escape, notice, table, pct } from "../utils/ui.js";
+import { featureImportance } from "../utils/charts.js";
 import { metricHeaders, metricRows } from "./evaluation.js";
 export function render(ctx) {
   if (!ctx.report) {
@@ -24,21 +25,30 @@ export function render(ctx) {
       ["Evaluation timestamp", report.evaluated_at],
       ["Requested / split seed", `${report.seed} / ${report.split_seed}`],
       ["Schema", report.schema_version],
+      ["Feature fingerprint", report.feature_fingerprint],
+      ["PSL snapshot SHA-256", report.feature_provenance?.psl_snapshot_sha256],
+      ["Split method", report.split_details?.method],
       ["Split membership hash", report.split_membership_sha256],
     ],
-  )}<div class="actions"><button id="export-json">Export JSON</button><button id="export-csv" class="secondary">Export comparison CSV</button><button id="export-summary" class="secondary">Export research summary</button></div><h3>Model comparison</h3>${table(metricHeaders, metricRows(report))}<h3>RF feature importance (impurity-based; may favor high-cardinality features)</h3>${table(
+  )}<div class="actions"><button id="export-json">Export JSON</button><button id="export-csv" class="secondary">Export comparison CSV</button><button id="export-summary" class="secondary">Export research summary</button></div><h3>Model comparison</h3>${table(metricHeaders, metricRows(report))}<h3>RF feature importance (impurity-based; may favor high-cardinality features)</h3><div class="importance-chart"><canvas id="feature-importance" aria-label="Actual Random Forest feature importance"></canvas></div>${table(
     ["Rank", "Feature", "Importance"],
     ranking.map(([name, score], i) => [i + 1, name, pct(score)]),
-  )}<h3>RF false positives and false negatives</h3><p>${rf.error_count} errors on held-out data. At most 100 masked rows are shown. Paths, query strings, and fragments are redacted.</p>${
+  )}<h3>RF false positives and false negatives</h3><p>${rf.error_count} errors on held-out data: ${rf.false_positive_count ?? "N/A"} false positives, ${rf.false_negative_count ?? "N/A"} false negatives. Up to 50 masked rows per error type are shown. Paths, query strings, and fragments are redacted.</p>${
     rf.errors
       ? table(
-          ["Masked URL", "Actual", "Predicted"],
-          rf.errors.map((r) => [r.url, r.actual, r.predicted]),
+          ["Error type", "Masked URL", "Actual", "Predicted"],
+          rf.errors.map((r) => [
+            r.kind || "Unavailable in saved report",
+            r.url,
+            r.actual,
+            r.predicted,
+          ]),
         )
       : notice(
           "Row-level errors are session-only and are not saved to localStorage.",
         )
   }<p class="muted">${escape(report.selection_policy)} Keep reference domains fixed before experiments. Inspect dataset provenance and domain overlap with references before drawing research conclusions.</p></article>`;
+  featureImportance("feature-importance", ranking);
   document.getElementById("export-json").onclick = () =>
     download("research-results.json", report);
   document.getElementById("export-csv").onclick = () =>

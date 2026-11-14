@@ -4,8 +4,11 @@ export function metricRows(report) {
   return report.reports.map((r) => [
     r.model_name,
     r.feature_set,
-    ...["accuracy", "precision", "recall", "f1", "roc_auc", "pr_auc"].map((k) =>
-      pct(r.test[k]),
+    ...["accuracy", "precision", "recall", "f1", "roc_auc", "pr_auc"].map(
+      (k) =>
+        r.test[k] == null
+          ? `N/A — ${r.test.metric_reasons?.[k] || "Not available"}`
+          : pct(r.test[k]),
     ),
     r.selected_on_validation ? "Yes" : "No",
   ]);

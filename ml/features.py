@@ -1,5 +1,9 @@
 """Versioned lexical features; no DNS, HTTP, or corpus fitting."""
 
+import hashlib
+import json
+from importlib.resources import files
+
 import ipaddress
 import math
 import re
@@ -9,7 +13,7 @@ from urllib.parse import urlsplit, urlunsplit
 import idna
 import tldextract
 
-SCHEMA_VERSION = "lexical-v1"
+SCHEMA_VERSION = "lexical-v2"
 # Explicit reference set, fixed before any dataset split. Change requires retraining.
 REFERENCES = (
     "google.com",
@@ -139,6 +143,7 @@ DEFINITIONS = {
     "registered_domain_length": "Characters in registered domain",
     "suffix_length": "Characters in PSL suffix",
     "punycode": "Hostname contains an xn-- label",
+    "url_entropy": "Shannon entropy of normalized URL characters, bits",
 }
 FEATURE_NAMES = tuple(DEFINITIONS)
 BASIC = (
@@ -191,6 +196,10 @@ def extract_features(value):
                 len(registered),
                 len(parts.suffix),
                 int(any(s.startswith("xn--") for s in host.split("."))),
+                -sum(
+                    (n / len(url)) * math.log2(n / len(url))
+                    for n in Counter(url).values()
+                ),
             ),
         )
     )
@@ -201,4 +210,25 @@ def extract_features(value):
         "typosquatting": typo,
         "shortener_provider": host if host in SHORTENERS else None,
         "schema_version": SCHEMA_VERSION,
+        "feature_fingerprint": FEATURE_FINGERPRINT,
     }
+
+
+# Offline PSL snapshot is part of the feature contract; no network refresh occurs.
+FEATURE_PROVENANCE = {
+    "schema_version": SCHEMA_VERSION,
+    "feature_names": list(FEATURE_NAMES),
+    "definitions": DEFINITIONS,
+    "references": list(REFERENCES),
+    "keywords": list(KEYWORDS),
+    "shorteners": sorted(SHORTENERS),
+    "tldextract_version": tldextract.__version__,
+    "include_private_suffixes": True,
+    "psl_snapshot_sha256": hashlib.sha256(
+        files("tldextract").joinpath(".tld_set_snapshot").read_bytes()
+    ).hexdigest(),
+    "normalization": "absolute HTTP(S), UTS46 ASCII hostname, default port/empty path normalized, fragment excluded",
+}
+FEATURE_FINGERPRINT = hashlib.sha256(
+    json.dumps(FEATURE_PROVENANCE, sort_keys=True).encode()
+).hexdigest()

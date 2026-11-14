@@ -22,13 +22,16 @@ export function render(ctx) {
     output.innerHTML = `<h3>${escape(result.name)}</h3>${table(
       ["Dataset check", "Value"],
       [
+        ["Raw records", result.raw_records],
         ["Unique records", result.records],
         ["Phishing", result.classes.phishing || 0],
         ["Benign", result.classes.benign || 0],
         ["Missing values", result.missing_values],
         ["Duplicates removed", result.duplicates_removed],
         ["Domain groups", result.registered_domain_groups],
-        ["SHA-256", result.sha256],
+        ["Raw CSV SHA-256", result.sha256],
+        ["Normalized dataset SHA-256", result.normalized_sha256],
+        ["Missing value policy", result.missing_value_policy],
       ],
     )}<h3>Preview — first 8 normalized records</h3>${table(
       ["URL", "Label"],
