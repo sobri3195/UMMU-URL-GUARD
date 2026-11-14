@@ -53,7 +53,7 @@ npm run test:browser
 # Cloud runtime alternative: CHROMIUM_PATH=/usr/bin/chromium npm run test:browser
 ```
 
-This checks all nine pages, actual API feature/CSV/training flows, masked history/deletion, desktop/mobile overflow, and uncaught page errors. Screenshots go into ignored `artifacts/`. The isolated browser context is cleared and closed afterward. Run `npm run format:check` for frontend/Markdown formatting.
+By default this checks all nine pages, actual API features, masked history/deletion, desktop/mobile overflow, and uncaught page errors. Dataset upload/training/evaluation/importance UI checks run only when an explicit real CSV is supplied: `ML_TEST_DATASET=/path/to/validated-small.csv npm run test:browser`. Without that input, the runner explicitly reports the ML browser workflow as NOT RUN; it never generates synthetic research results in the app. Synthetic training CSVs are confined to Python unit tests. Screenshots go into ignored `artifacts/`. The isolated browser context is cleared and closed afterward. Run `npm run format:check` for frontend/Markdown formatting.
 
 ### Foundation integration test
 

@@ -1,6 +1,7 @@
 const { chromium } = require("playwright");
 const assert = require("node:assert/strict");
 const { mkdirSync } = require("node:fs");
+const { basename } = require("node:path");
 mkdirSync("artifacts", { recursive: true });
 (async () => {
   const browser = await chromium.launch({
@@ -61,32 +62,40 @@ mkdirSync("artifacts", { recursive: true });
   );
   await page.getByRole("button", { name: "Delete", exact: true }).click();
   await page.getByText("No matching history", { exact: true }).waitFor();
-  const rows = ["url,label"];
-  for (let i = 0; i < 90; i++)
-    rows.push(
-      `https://sample${i}.com/${i % 3 === 0 ? "verify-login-123" : "about"},${i % 3 === 0 ? "phishing" : "benign"}`,
+  // Dataset-derived UI results require an explicitly provided real CSV.
+  // Synthetic training fixtures are confined to Python unit tests.
+  if (process.env.ML_TEST_DATASET) {
+    await page.goto("http://127.0.0.1:5173/#dataset");
+    await page
+      .locator("#dataset-file")
+      .setInputFiles(process.env.ML_TEST_DATASET);
+    await page.getByRole("button", { name: "Validate dataset" }).click();
+    await page
+      .getByRole("heading", {
+        name: basename(process.env.ML_TEST_DATASET),
+        exact: true,
+      })
+      .waitFor();
+    await page.goto("http://127.0.0.1:5173/#training");
+    await page.locator("[name=estimators]").fill("20");
+    await page
+      .getByRole("button", { name: "Start training", exact: true })
+      .click();
+    await page
+      .getByRole("heading", { name: "Training completed" })
+      .waitFor({ timeout: 50000 });
+    for (const route of ["evaluation", "experiments", "analysis"]) {
+      await page.goto(`http://127.0.0.1:5173/#${route}`);
+      assert.ok((await page.locator("tbody tr").count()) > 0);
+    }
+    await page.locator("#feature-importance").waitFor();
+    console.log(
+      "ML browser workflow executed with the supplied CSV; results are dataset-specific, not general research claims.",
     );
-  await page.goto("http://127.0.0.1:5173/#dataset");
-  await page.locator("#dataset-file").setInputFiles({
-    name: "synthetic-browser-test.csv",
-    mimeType: "text/csv",
-    buffer: Buffer.from(rows.join("\n")),
-  });
-  await page.getByRole("button", { name: "Validate dataset" }).click();
-  await page
-    .getByRole("heading", { name: "synthetic-browser-test.csv" })
-    .waitFor();
-  await page.goto("http://127.0.0.1:5173/#training");
-  await page.locator("[name=estimators]").fill("20");
-  await page
-    .getByRole("button", { name: "Start training", exact: true })
-    .click();
-  await page
-    .getByRole("heading", { name: "Training completed" })
-    .waitFor({ timeout: 50000 });
-  for (const route of ["evaluation", "experiments", "analysis"]) {
-    await page.goto(`http://127.0.0.1:5173/#${route}`);
-    assert.ok((await page.locator("tbody tr").count()) > 0);
+  } else {
+    console.log(
+      "ML upload/training/evaluation browser workflow NOT RUN: provide a real CSV via ML_TEST_DATASET. Synthetic training is tested only in Python unit tests.",
+    );
   }
   await page.goto("http://127.0.0.1:5173/#toString");
   await page.getByRole("heading", { name: "Dashboard", exact: true }).waitFor();
@@ -117,7 +126,7 @@ mkdirSync("artifacts", { recursive: true });
   // Remove all synthetic browser state: fixture metrics must not remain in a user's workspace.
   await page.evaluate(() => localStorage.clear());
   console.log(
-    "Browser smoke passed: all routes, real API features, masked scan history/delete, CSV analysis, six-model training, evaluation/experiment/analysis, desktop/mobile, zero page errors.",
+    "Browser smoke passed: all routes, real API features, masked scan history/delete, desktop/mobile, zero page errors. Dataset-dependent ML coverage is reported separately above.",
   );
   await browser.close();
 })().catch((e) => {
