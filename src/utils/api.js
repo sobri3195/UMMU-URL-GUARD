@@ -26,7 +26,7 @@ function validateResponse(path, data) {
       );
     }
   }
-  if (path === "/features") {
+  if (path === "/features" || path === "/scan") {
     if (
       !nonempty(data.url) ||
       !nonempty(data.schema_version) ||
@@ -41,6 +41,29 @@ function validateResponse(path, data) {
       )
     ) {
       throw new Error("Invalid feature response from the Python API.");
+    }
+  }
+  if (path === "/scan") {
+    const online = data.online;
+    if (
+      !isObject(online) ||
+      !["complete", "blocked", "unavailable", "limited", "http_error"].includes(
+        online.status,
+      ) ||
+      !Array.isArray(online.chain) ||
+      online.chain.length > 6 ||
+      !Number.isInteger(online.redirect_count) ||
+      online.redirect_count < 0 ||
+      online.redirect_count > 5 ||
+      !(
+        online.http_status === null ||
+        (Number.isInteger(online.http_status) &&
+          online.http_status >= 100 &&
+          online.http_status <= 599)
+      ) ||
+      !isObject(data.typosquatting)
+    ) {
+      throw new Error("Invalid online scan response from the Python API.");
     }
   }
   return data;

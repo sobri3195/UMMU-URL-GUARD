@@ -31,7 +31,7 @@ def test_endpoints():
 def test_private_scan():
     response = client().post("/api/scan", json={"url": "http://127.0.0.1"})
     assert response.status_code == 200
-    assert response.json()["online"]["status"] == "unavailable"
+    assert response.json()["online"]["status"] == "blocked"
     assert response.json()["prediction"] is None
 
 

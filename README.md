@@ -113,6 +113,39 @@ Joblib is pickle-based and can execute code. Never upload or load artifacts from
 
 Prediction uses the **original normalized URL**, not online metadata or the resolved destination; final-destination features are returned separately. Short URLs and similar-looking domains can be legitimate. A benign prediction never guarantees safety.
 
+### Online scanner response contract (stage 2)
+
+`POST /api/scan` runs the real Python DNS/HEAD scanner. A structurally invalid URL returns API HTTP 422. A valid lexical URL can still be refused for networking; the API returns its lexical features, the actual ML availability, and a separate `online` result:
+
+| `online.status` | Meaning                                                                                                                     |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `complete`      | Response headers obtained; no safety verdict is implied                                                                     |
+| `http_error`    | The target really returned HTTP 4xx/5xx; inspect `http_status`                                                              |
+| `limited`       | HEAD is unsupported (405/501), or only an interim response was received; no GET fallback                                    |
+| `blocked`       | URL/host/port/IP/peer policy rejected the target or a redirect before sending the next request                              |
+| `unavailable`   | DNS, TLS, connection, timeout, malformed/oversized response, redirect loop/limit, or instance capacity prevented completion |
+
+`reason_code` identifies the failure without echoing network-library exception text. `chain` contains **only** hops whose headers were received; an uncontacted/blocked target never gets a fabricated HTTP status. `redirect_count` counts transitions with received response headers (maximum five), while `redirects_observed` counts redirect responses, including one that could not be followed. Failed resolution leaves `final_url`/`final_domain` null. Unsupported HEAD also leaves the final destination unconfirmed. The last observed status and chain are retained when a later hop fails. Durations are measured with a monotonic clock; capacity rejection has no online duration because no network check ran.
+
+The network policy additionally blocks site-local IPv6, IPv4-mapped/6to4/Teredo/NAT64 addresses, Azure's platform address `168.63.129.16`, internal suffixes, and ambiguous numeric IP notation. Every A/AAAA answer that the system resolver returns is checked; at most 64 answers are accepted. The connection uses a validated numeric IP, certificate verification/SNI use the normalized original host, and the connected peer is checked **before** sending HEAD. Every redirect repeats these checks, including redirects on the same hostname. The transport closes immediately after headers. Request headers are capped at 8 KB, response headers at 16 KB / 100 fields, and each instance allows at most four active network scans. These supplement the existing five-second hop/15-second total deadlines and rate limits.
+
+The scanner page shows original and normalized URLs, final domain, actual target status, redirect chain, measured durations, exact-host shortener detection, original/final domain similarity, and all Python lexical features. Model status is separate; no artifact still means **Prediction unavailable**, not loss of lexical analysis. References and lexical feature definitions remain unchanged, so existing training/inference schemas do not drift. Punycode normalization and ASCII edit comparison do not provide comprehensive Unicode visual-confusable detection. Clear cancels the pending browser request and preserves the online-check preference.
+
+### Scanner tests
+
+```bash
+python -m pytest -q
+npm test
+# Install Playwright Chromium first, as described above:
+npm run test:scanner
+# Retained cloud tools:
+PYTHON=/workspace/ummu-venv/bin/python CHROMIUM_PATH=/usr/bin/chromium npm run test:scanner
+```
+
+Security tests mock **all outbound DNS and sockets**, and unexpected egress fails the tests. They exercise mixed public/private DNS, changed DNS at redirects, connected-peer mismatch, pinning/TLS settings, private/metadata targets, loop/redirect limits, HEAD-only behavior, actual HTTP error handling, DNS failure, deadlines, resource caps, and concurrency.
+
+The scanner browser test starts actual Vite and FastAPI services on dedicated ports 5175/18002, refuses occupied ports, and stops only its own processes. The explicit test-only `tests/scanner_fixture.py` mocks outbound DNS/HEAD responses; production never imports it and has no mock-mode switch. The browser sends real `/api/scan` requests, checks Python-computed output, and confirms it never navigates to a target. No real phishing site is used. Mocked public success is evidence of integration behavior, **not** proof of live deployment egress. The current cloud live probe to `https://example.com/` returned `unavailable` / `dns_failure`, without an HTTP status or destination. Live public DNS/HEAD and Vercel deployment still require verification in the intended hosting network; passing these tests alone does not establish suitability for unrestricted public access.
+
 ## Privacy and exports
 
 History is stored under `ummu_url_guard_history` in localStorage, at most 200 records. Paths, queries, and fragments are removed **before saving**, including tokens embedded in paths. The current on-screen scan/CSV preview necessarily shows submitted values; do not share screenshots containing sensitive URLs. Scheme/hostname remain in masked exports and may still be identifying.
