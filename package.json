@@ -18,6 +18,7 @@
     "lucide": "^0.468.0"
   },
   "devDependencies": {
+    "@vercel/build-utils": "15.3.0",
     "@vercel/routing-utils": "^6.6.1",
     "playwright": "^1.65.1",
     "prettier": "^3.10.1",
