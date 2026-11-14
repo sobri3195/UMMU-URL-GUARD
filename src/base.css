@@ -711,3 +711,9 @@ svg {
     justify-content: flex-start;
   }
 }
+
+.importance-chart {
+  position: relative;
+  height: 550px;
+  margin: 20px 0;
+}

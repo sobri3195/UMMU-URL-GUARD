@@ -87,6 +87,7 @@ function scanResult(result, original, requestMs, saved) {
     [
       ["Estimated phishing probability", pct(result.probability)],
       ["Model version", result.model_version],
+      ["Prediction timestamp", when(result.prediction_timestamp)],
       [
         "Prediction target",
         result.prediction_target ||

@@ -108,6 +108,10 @@ test("scan responses preserve blocked/limited/error metadata independently of ML
     definitions: { url_length: "URL characters" },
     typosquatting: { indicator: false },
     prediction: null,
+    probability: null,
+    model_version: null,
+    model_status: "unavailable",
+    prediction_timestamp: "2026-11-14T00:00:00+00:00",
     online: {
       status: "blocked",
       chain: [],
@@ -128,4 +132,60 @@ test("scan responses preserve blocked/limited/error metadata independently of ML
     globalThis.fetch = async () => json(invalid);
     await assert.rejects(post("/scan", { url: payload.url }), /Invalid/);
   }
+});
+
+test("prediction response requires actual model status/probability and timestamp", async () => {
+  const payload = {
+    url: "https://example.com/",
+    schema_version: "lexical-v2",
+    features: { url_length: 20 },
+    definitions: { url_length: "URL characters" },
+    model_status: "unavailable",
+    prediction: null,
+    probability: null,
+    model_version: null,
+    prediction_timestamp: "2026-11-14T00:00:00Z",
+  };
+  globalThis.fetch = async () => json(payload);
+  assert.equal((await post("/predict", { url: payload.url })).prediction, null);
+  globalThis.fetch = async () =>
+    json({ ...payload, model_status: "available", probability: 42 });
+  await assert.rejects(
+    post("/predict", { url: payload.url }),
+    /Invalid model prediction/,
+  );
+});
+
+test("training client rejects missing metrics and requires reasons for N/A", async () => {
+  // Contract fixture only; not research results or production training data.
+  const reports = ["basic", "extended"].flatMap((feature_set) =>
+    ["Random Forest", "Logistic Regression", "Decision Tree"].map(
+      (model_name) => ({
+        feature_set,
+        model_name,
+        test: {
+          accuracy: 0.5,
+          precision: null,
+          recall: 0,
+          f1: 0,
+          roc_auc: 0.5,
+          pr_auc: 0.5,
+          metric_reasons: { precision: "No predicted phishing samples" },
+        },
+      }),
+    ),
+  );
+  const result = {
+    experiment_id: "test-only",
+    feature_fingerprint: "test-fingerprint",
+    dataset: { sha256: "test-hash" },
+    reports,
+  };
+  globalThis.fetch = async () => json(result);
+  assert.equal((await post("/train", {})).reports.length, 6);
+  globalThis.fetch = async () => json({ ...result, reports: [] });
+  await assert.rejects(post("/train", {}), /Invalid experiment/);
+  delete reports[0].test.metric_reasons.precision;
+  globalThis.fetch = async () => json(result);
+  await assert.rejects(post("/train", {}), /Invalid experiment/);
 });

@@ -68,3 +68,31 @@ export function curve(id, x, y, label) {
     }),
   );
 }
+
+export function featureImportance(id, ranking) {
+  const element = document.getElementById(id);
+  if (!element || !ranking.length) return;
+  active.push(
+    new Chart(element, {
+      type: "bar",
+      data: {
+        labels: ranking.map(([name]) => name),
+        datasets: [
+          {
+            label: "RF impurity importance",
+            data: ranking.map(([, value]) => value),
+            backgroundColor: "#2563eb",
+            borderRadius: 3,
+          },
+        ],
+      },
+      options: {
+        indexAxis: "y",
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { x: { beginAtZero: true } },
+      },
+    }),
+  );
+}

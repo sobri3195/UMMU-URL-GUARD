@@ -26,7 +26,7 @@ function validateResponse(path, data) {
       );
     }
   }
-  if (path === "/features" || path === "/scan") {
+  if (path === "/features" || path === "/scan" || path === "/predict") {
     if (
       !nonempty(data.url) ||
       !nonempty(data.schema_version) ||
@@ -64,6 +64,66 @@ function validateResponse(path, data) {
       !isObject(data.typosquatting)
     ) {
       throw new Error("Invalid online scan response from the Python API.");
+    }
+  }
+  if (path === "/predict" || path === "/scan") {
+    const available = data.model_status === "available";
+    if (
+      !["available", "unavailable"].includes(data.model_status) ||
+      !Number.isFinite(Date.parse(data.prediction_timestamp)) ||
+      (available
+        ? !["phishing", "benign"].includes(data.prediction) ||
+          !nonempty(data.model_version) ||
+          typeof data.probability !== "number" ||
+          !Number.isFinite(data.probability) ||
+          data.probability < 0 ||
+          data.probability > 1
+        : data.prediction !== null ||
+          data.probability !== null ||
+          data.model_version !== null)
+    ) {
+      throw new Error("Invalid model prediction response from the Python API.");
+    }
+  }
+  if (["/train", "/evaluate", "/experiment"].includes(path)) {
+    const metrics = [
+      "accuracy",
+      "precision",
+      "recall",
+      "f1",
+      "roc_auc",
+      "pr_auc",
+    ];
+    if (
+      !nonempty(data.experiment_id) ||
+      !nonempty(data.feature_fingerprint) ||
+      !isObject(data.dataset) ||
+      !nonempty(data.dataset.sha256) ||
+      !Array.isArray(data.reports) ||
+      data.reports.length !== 6 ||
+      !data.reports.every(isObject) ||
+      new Set(data.reports.map((row) => `${row.model_name}|${row.feature_set}`))
+        .size !== 6 ||
+      data.reports.some(
+        (row) =>
+          !["Random Forest", "Logistic Regression", "Decision Tree"].includes(
+            row.model_name,
+          ) ||
+          !["basic", "extended"].includes(row.feature_set) ||
+          !isObject(row.test) ||
+          metrics.some((key) =>
+            row.test[key] === null
+              ? !nonempty(row.test.metric_reasons?.[key])
+              : typeof row.test[key] !== "number" ||
+                !Number.isFinite(row.test[key]) ||
+                row.test[key] < 0 ||
+                row.test[key] > 1,
+          ),
+      )
+    ) {
+      throw new Error(
+        "Invalid experiment response from the Python API; no training success can be confirmed.",
+      );
     }
   }
   return data;
