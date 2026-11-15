@@ -149,17 +149,10 @@ h3 {
   letter-spacing: 0.02em;
 }
 .brand-icon {
-  display: grid;
-  place-items: center;
-  width: 43px;
-  height: 47px;
-  background: #eff6ff;
-  border-radius: 10px;
-}
-.brand-icon svg {
-  width: 29px;
-  height: 29px;
-  stroke: #2563eb;
+  display: block;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
 }
 .brand-sub {
   display: block;
@@ -489,19 +482,13 @@ code {
   padding: 2px 5px;
 }
 footer {
-  display: flex;
-  justify-content: space-between;
-  gap: 20px;
-  color: #94a3b8;
-  font-size: 10px;
+  color: #64748b;
+  font-size: 12px;
   margin-top: 36px;
   border-top: 1px solid #e2e8f0;
   padding-top: 20px;
 }
-footer span {
-  max-width: 400px;
-  text-align: right;
-}
+.header-logo,
 #mobile-menu {
   display: none;
 }
@@ -582,6 +569,10 @@ svg {
     padding: 5px;
     z-index: 11;
   }
+  .header-logo {
+    display: block;
+    flex-shrink: 0;
+  }
   .header-title {
     font-size: 10px;
   }
@@ -640,14 +631,6 @@ svg {
   .form-grid {
     grid-template-columns: 1fr;
     gap: 10px;
-  }
-  footer {
-    display: block;
-  }
-  footer span {
-    display: block;
-    text-align: left;
-    margin-top: 8px;
   }
   .actions button {
     font-size: 12px;
