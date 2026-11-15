@@ -1,7 +1,6 @@
 import "./style.css";
 import {
   createIcons,
-  ShieldCheck,
   LayoutDashboard,
   ScanLine,
   Database,
@@ -83,7 +82,7 @@ const routes = {
   ],
 };
 document.getElementById("app").innerHTML =
-  `<aside id="sidebar"><a href="#dashboard" class="brand"><span class="brand-icon"><i data-lucide="shield-check"></i></span><span>UMMU<span class="brand-sub">URL GUARD</span></span></a><div class="sidebar-label">WORKSPACE</div><nav aria-label="Main navigation">${Object.entries(
+  `<aside id="sidebar"><a href="#dashboard" class="brand"><img class="brand-icon" src="/assets/logo.svg" alt="" width="44" height="44" /><span>UMMU<span class="brand-sub">URL GUARD</span></span></a><div class="sidebar-label">WORKSPACE</div><nav aria-label="Main navigation">${Object.entries(
     routes,
   )
     .map(
@@ -92,9 +91,8 @@ document.getElementById("app").innerHTML =
     )
     .join(
       "",
-    )}</nav><div class="sidebar-note"><span class="status-dot"></span>Research, responsibly.<p>Predictions are indicators.<br>Always verify independently.</p></div></aside><div class="workspace"><header><button id="mobile-menu" aria-label="Toggle navigation" aria-expanded="false"><i data-lucide="menu"></i></button><div class="header-title">Phishing URL Detection <span>& Typosquatting Analysis</span></div><span class="version">RESEARCH EDITION</span></header><main><div class="page-heading"><div><div class="eyebrow">UMMU URL GUARD</div><h1 id="title"></h1><p id="subtitle"></p></div><div class="connection-badges" role="status" aria-live="polite"><span id="backend-status" class="model-status" data-state="checking">Checking Python API…</span><span id="model-status" class="model-status">Model status unknown</span></div></div><div id="view"></div><footer>UMMU URL GUARD · Research workspace <span>Machine learning prediction is an indicator, not a guarantee of website safety.</span></footer></main></div>`;
+    )}</nav><div class="sidebar-note"><span class="status-dot"></span>Research, responsibly.<p>Predictions are indicators.<br>Always verify independently.</p></div></aside><div class="workspace"><header><button id="mobile-menu" aria-label="Toggle navigation" aria-expanded="false"><i data-lucide="menu"></i></button><img class="header-logo" src="/assets/logo.svg" alt="UMMU URL GUARD" width="28" height="28" /><div class="header-title">Phishing URL Detection <span>& Typosquatting Analysis</span></div><span class="version">RESEARCH EDITION</span></header><main><div class="page-heading"><div><div class="eyebrow">UMMU URL GUARD</div><h1 id="title"></h1><p id="subtitle"></p></div><div class="connection-badges" role="status" aria-live="polite"><span id="backend-status" class="model-status" data-state="checking">Checking Python API…</span><span id="model-status" class="model-status">Model status unknown</span></div></div><div id="view"></div><footer>Dibuat oleh M. Rahman Muttaqin 12105 55201 21 162</footer></main></div>`;
 const icons = {
-  ShieldCheck,
   LayoutDashboard,
   ScanLine,
   Database,
