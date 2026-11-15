@@ -5,7 +5,8 @@
   "functions": {
     "api/index.py": {
       "maxDuration": 60,
-      "includeFiles": "{ml/**,models/**}"
+      "includeFiles": "{ml/**,models/**}",
+      "excludeFiles": ".vercel_python_packages/**"
     }
   },
   "rewrites": [
